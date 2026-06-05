@@ -1,144 +1,235 @@
-# Project 1 — Cloud Infrastructure & Development
-**Author:** Wilton B. Harrison  
-**Stack:** Terraform · AWS · Python · Boto3  
-**Tier:** Cloud Engineer Portfolio Project
+# Project 5: Artisan Gem Works Franchise — Kubernetes Platform
 
----
+**Artisan Gem Works** — Fine handcrafted jewelry, two locations.
 
-## Overview
+| | |
+|---|---|
+| **Portland Flagship** | 2847 NW Thurman St, Portland, OR 97210 |
+| **Seattle Location** | 412 Pine St, Seattle, WA 98101 |
+| **Owner** | Mira Chen |
+| **Phone** | (503) 555-0142 (Portland) |
+| **Website** | https://artisangemworks.com |
 
-This project provisions a **production-grade, 3-tier AWS VPC** from scratch using Terraform Infrastructure-as-Code (IaC). It establishes the foundational cloud architecture that all other projects build upon — including compute, storage, networking, security groups, and IAM.
+## What Changed from Project 4
 
-A companion Python deployment script (`deploy.py`) automates packaging and pushing web application artifacts to EC2 via S3 + AWS SSM, requiring zero manual SSH access.
+Project 4 ran on ECS Fargate with a manual six-step deploy script. A botched
+deployment on March 15, 2025 caused 47 minutes of downtime on a Saturday evening.
+This project migrates to Kubernetes on EKS with automated CI/CD via GitHub Actions
+and ArgoCD.
 
----
+**Before → After**
+- Deploy time: ~6 hours manual → ~8 minutes automated
+- Rollback: manual task-definition hunt → `kubectl rollout undo` (automatic)
+- Downtime on deploy: possible → zero (rolling update, maxUnavailable=0)
+- Scaling: fixed 2 ECS tasks → HPA 2–10 pods based on CPU
+- Health checks: TCP port open → readiness probe checks DB + Redis
 
 ## Architecture
 
 ```
 Internet
     │
-    ▼
-[Internet Gateway]
+CloudFront (CDN + WAF)
     │
-    ▼
-┌─────────────────────────────────────────────┐
-│              VPC  10.0.0.0/16               │
-│                                             │
-│  ┌─────────────┐    ┌─────────────┐         │
-│  │ Public Sub  │    │ Public Sub  │  ◄── Tier 1: Web / ALB
-│  │ 10.0.1.0/24 │    │ 10.0.2.0/24 │         │
-│  └──────┬──────┘    └──────┬──────┘         │
-│         │ NAT GW           │                │
-│  ┌──────▼──────┐    ┌──────▼──────┐         │
-│  │ Private Sub │    │ Private Sub │  ◄── Tier 2: App Servers
-│  │ 10.0.10.0   │    │ 10.0.11.0   │         │
-│  └──────┬──────┘    └──────┬──────┘         │
-│         │                  │                │
-│  ┌──────▼──────┐    ┌──────▼──────┐         │
-│  │  Data Sub   │    │  Data Sub   │  ◄── Tier 3: DB / Data
-│  │ 10.0.20.0   │    │ 10.0.21.0   │         │
-│  └─────────────┘    └─────────────┘         │
-└─────────────────────────────────────────────┘
-          │
-          ▼
-    [S3 Artifact Bucket] ── versioned, encrypted, private
+ALB ← NGINX Ingress Controller
+    │
+EKS Cluster (us-west-2)
+├── agw-production namespace
+│   ├── Deployment: agw-app (2–10 replicas, HPA)
+│   │   ├── livenessProbe:  GET /api/health
+│   │   └── readinessProbe: GET /api/ready  (checks DB + Redis)
+│   ├── Service: ClusterIP
+│   ├── Ingress: artisangemworks.com (TLS via cert-manager)
+│   └── PodDisruptionBudget: minAvailable=1
+├── cert-manager namespace (TLS certificates)
+├── ingress-nginx namespace (NGINX Ingress Controller)
+└── argocd namespace (GitOps controller)
+
+Data Layer
+├── RDS PostgreSQL 15 Multi-AZ (db.t3.medium)
+├── ElastiCache Redis 7.2 (cache.t3.micro, 2 nodes)
+└── S3 (product images, Terraform state)
 ```
 
----
+## EKS Node Groups
 
-## Components
+| Group | Instance | Min | Max | Purpose |
+|-------|----------|-----|-----|---------|
+| `app-nodes` | t3.medium | 2 | 4 | Application pods |
+| `system-nodes` | t3.small | 1 | 2 | ArgoCD, cert-manager, metrics-server |
 
-| Resource | Description |
-|---|---|
-| `aws_vpc` | Primary VPC with DNS support enabled |
-| `aws_subnet` (x6) | 3-tier subnets across 2 AZs (public/private/data) |
-| `aws_internet_gateway` | Public egress for Tier 1 |
-| `aws_nat_gateway` | Private egress for Tier 2 (no direct internet exposure) |
-| `aws_route_table` (x2) | Separate routing for public/private tiers |
-| `aws_security_group` (x3) | Tiered SGs: web → app → data (least-privilege) |
-| `aws_instance` | EC2 t3.micro web server (Amazon Linux 2, encrypted EBS) |
-| `aws_iam_role` | EC2 IAM role with SSM managed policy (no SSH keys needed) |
-| `aws_s3_bucket` | Encrypted, versioned, fully private artifact bucket |
+## Pod Scaling (HPA)
 
----
+| Condition | Replicas |
+|-----------|----------|
+| Normal traffic | 2 |
+| Moderate load (CPU > 50%) | 4–6 |
+| Peak load (CPU > 70%) | up to 10 |
 
-## Security Controls Applied
+## Product Catalog
 
-- **Encryption at rest:** EBS volumes (AES-256), S3 (SSE-AES256)
-- **Public access blocked:** S3 bucket fully private
-- **Least-privilege SGs:** Each tier only allows traffic from the tier above
-- **No SSH ingress:** EC2 access via AWS SSM Session Manager only
-- **IAM role scoped:** EC2 role limited to SSM + S3 bucket access
-- **S3 versioning:** Full artifact history for rollback capability
+### Shared (both locations)
+| Product | Price |
+|---------|-------|
+| Sterling Silver Pendant Necklace | $89 |
+| Rose Gold Stud Earrings | $124 |
+| Handcrafted Copper Bracelet | $67 |
+| Moonstone Ring | $156 |
+| Labradorite Drop Earrings | $98 |
+| Turquoise Cuff Bracelet | $143 |
+| Pearl Strand Necklace | $189 |
+| Garnet Cluster Ring | $212 |
+| Mixed Metal Earring Set | $78 |
+| Amethyst Pendant | $134 |
 
----
+### Portland Exclusive
+| Product | Price |
+|---------|-------|
+| Oregon Sunstone Ring | $287 |
+| Crater Lake Blue Topaz Necklace | $198 |
+| Pacific Driftwood Copper Set | $156 |
 
-## Prerequisites
+### Seattle Exclusive
+| Product | Price |
+|---------|-------|
+| Puget Sound Aquamarine Ring | $243 |
+| Pike Place Market Pendant | $167 |
+| Cascade Jade Earrings | $134 |
 
-| Tool | Version | Source |
-|---|---|---|
-| Terraform | >= 1.6 | https://developer.hashicorp.com/terraform/install |
-| AWS CLI | >= 2.x | https://aws.amazon.com/cli/ |
-| Python | >= 3.9 | https://python.org |
-| boto3 | latest | `pip install boto3 click` |
+## API Endpoints
 
----
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /api/health | None | Liveness probe |
+| GET | /api/ready | None | Readiness probe (checks DB + Redis) |
+| GET | /api/locations | None | Store locations |
+| GET | /api/products | None | Products (location filter) |
+| GET | /api/products/:slug | None | Product detail |
+| POST | /api/auth/login | None | Login |
+| POST | /api/auth/logout | Cookie | Logout |
+| GET | /api/auth/me | Cookie | Current user |
+| POST | /api/auth/2fa/setup | Cookie+Admin | Setup TOTP |
+| POST | /api/auth/2fa/enable | Cookie+Admin | Enable TOTP |
+| POST | /api/auth/2fa/disable | Cookie+Admin | Disable TOTP |
+| GET | /api/orders | Cookie | User orders |
+| POST | /api/orders | Cookie | Place order |
+| GET | /api/admin/products | Cookie+Admin | All products |
+| POST | /api/admin/products | Cookie+Admin | Create product |
+| PUT | /api/admin/products/:id | Cookie+Admin | Update product |
+| DELETE | /api/admin/products/:id | Cookie+Admin | Delete product |
+| GET | /api/admin/orders | Cookie+Admin | All orders |
+| PUT | /api/admin/orders/:id/status | Cookie+Admin | Update order status |
+| POST | /api/admin/cache/clear | Cookie+Admin | Clear Redis + CloudFront cache |
+| GET | /api/admin/audit-log | Cookie+Admin | Audit log (paginated) |
 
-## Quick Start
+## Security Controls
+
+- **httpOnly cookies** — JWT never accessible to JavaScript (`__Host-agw_token`)
+- **Helmet.js** — X-Frame-Options, HSTS, Content-Security-Policy
+- **Rate limiting** — 200 req/15min API, 5 req/15min auth + admin
+- **TOTP 2FA** — RFC 6238 admin authentication with backup codes
+- **Redis JWT blocklist** — session revocation on logout
+- **WAF** — OWASP CRS + IP rate limit 2000/IP (CloudFront scope)
+- **Kubernetes NetworkPolicy** — pods only communicate with required services
+- **Kubernetes Secrets** — credentials never in ConfigMaps or env vars in plain YAML
+- **TLS everywhere** — HTTPS enforced, Redis TLS (`rediss://`), RDS SSL mode=require
+
+## CI/CD Pipeline
+
+```
+Git push to main
+    │
+GitHub Actions (.github/workflows/deploy.yml)
+    ├── 1. npm ci && npm test
+    ├── 2. docker build (multi-stage)
+    ├── 3. docker push to ECR (tagged with git SHA)
+    ├── 4. Update k8s/deployment.yaml image tag
+    └── 5. git commit + push manifest change
+         │
+ArgoCD (watching repo, path: k8s/)
+    ├── Detects manifest change (image tag)
+    ├── Applies rolling update (maxSurge=1, maxUnavailable=0)
+    ├── Waits for readiness probes on new pods
+    ├── Shifts traffic when pods healthy
+    └── Auto-rollback if pods never become ready
+```
+
+## Rollback
 
 ```bash
-# 1. Clone / navigate to project directory
-cd project1-cloud-infra
+# Instant rollback to previous version
+kubectl rollout undo deployment/agw-app -n agw-production
 
-# 2. Configure AWS credentials
-aws configure
+# Check rollout history
+kubectl rollout history deployment/agw-app -n agw-production
 
-# 3. Initialize Terraform
-terraform init
-
-# 4. Preview infrastructure changes
-terraform plan -out=tfplan
-
-# 5. Apply infrastructure
-terraform apply tfplan
-
-# 6. Deploy web app (after infrastructure is up)
-python deploy.py \
-  --bucket <output: s3_bucket_name> \
-  --instance-id <output: web_instance_id> \
-  --app-dir ./app
-
-# 7. Verify
-curl http://<output: web_instance_ip>
+# Roll back to specific revision
+kubectl rollout undo deployment/agw-app -n agw-production --to-revision=3
 ```
 
----
-
-## Teardown
+## Local Development
 
 ```bash
-terraform destroy
+cp .env.example .env
+# Edit .env with your values
+docker-compose up -d
+# App:   http://localhost:3000
+# Admin: http://localhost:3000/admin.html
 ```
 
-> ⚠️ This destroys ALL resources including the S3 bucket. Ensure artifacts are backed up first.
+## Kubernetes Deployment (First Time)
 
----
+```bash
+# Prerequisites: kubectl, helm, AWS CLI, terraform
 
-## Key Learning Outcomes
+# 1. Provision EKS cluster
+cd terraform && terraform init && terraform apply
 
-- Terraform state management with remote S3 backend + DynamoDB locking
-- 3-tier VPC network segmentation (defense in depth)
-- Security group chaining to enforce least-privilege data flows
-- IAM instance profiles and SSM-based access (replacing SSH)
-- S3 encryption, versioning, and public access controls
-- Automated CI/CD artifact pipeline with Python + Boto3
+# 2. Configure kubectl
+aws eks update-kubeconfig --region us-west-2 --name agw-eks-cluster
 
----
+# 3. Install NGINX Ingress
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+  -n ingress-nginx --create-namespace
 
-## Open-Source References
+# 4. Install cert-manager
+helm repo add jetstack https://charts.jetstack.io
+helm upgrade --install cert-manager jetstack/cert-manager \
+  -n cert-manager --create-namespace --set installCRDs=true
 
-- [Terraform AWS Provider Docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [AWS VPC User Guide](https://docs.aws.amazon.com/vpc/latest/userguide/)
-- [Boto3 Documentation](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html)
-- [AWS SSM Run Command](https://docs.aws.amazon.com/systems-manager/latest/userguide/execute-remote-commands.html)
+# 5. Install ArgoCD
+kubectl create namespace argocd
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# 6. Create application secrets
+kubectl create secret generic agw-secrets -n agw-production \
+  --from-literal=JWT_SECRET="$(openssl rand -base64 64)" \
+  --from-literal=DATABASE_URL="postgres://agw:PASS@RDS_ENDPOINT:5432/agwdb?sslmode=require" \
+  --from-literal=REDIS_URL="rediss://:PASS@ELASTICACHE_ENDPOINT:6379"
+
+# 7. Apply manifests
+kubectl apply -f k8s/
+
+# 8. Register ArgoCD app (GitOps mode)
+argocd app create agw-app \
+  --repo https://github.com/YOUR_ORG/agw-app \
+  --path k8s \
+  --dest-server https://kubernetes.default.svc \
+  --dest-namespace agw-production \
+  --sync-policy automated \
+  --auto-prune \
+  --self-heal
+```
+
+## Demo Credentials
+
+See `PRIVATE-ADMIN-GUIDE.md` for all credentials.
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@artisangemworks.com | Admin!2024Secure |
+| Customer | customer@demo.com | Customer!2024Demo |
+
+**Stripe Test Cards**: `4242 4242 4242 4242` (success), `4000 0000 0000 9995` (decline)
