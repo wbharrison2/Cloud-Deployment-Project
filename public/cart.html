@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cart — Artisan Gem Works</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">Artisan Gem Works</a>
+      <nav class="main-nav"><a href="/shop.html">Shop</a><a href="/#locations">Locations</a></nav>
+      <div class="header-actions">
+        <a href="/account.html" class="btn-icon">Account</a>
+        <a href="/cart.html" class="btn-icon cart-link active">Cart (<span id="cart-count">0</span>)</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-main">
+    <div class="container">
+      <h1 class="page-title">Your Cart</h1>
+      <div class="cart-layout">
+        <div class="cart-items" id="cart-items">
+          <div id="cart-empty" class="cart-empty hidden">
+            <p>Your cart is empty.</p>
+            <a href="/shop.html" class="btn btn-outline">Continue Shopping</a>
+          </div>
+        </div>
+        <aside class="cart-summary" id="cart-summary">
+          <h2>Order Summary</h2>
+          <div class="summary-row"><span>Location</span><span id="cart-location">—</span></div>
+          <div class="summary-row"><span>Subtotal</span><span id="cart-subtotal">—</span></div>
+          <div class="summary-row"><span>Shipping</span><span>Calculated at checkout</span></div>
+          <div class="summary-row summary-total"><span>Total</span><span id="cart-total">—</span></div>
+          <a href="/checkout.html" class="btn btn-primary btn-full" id="checkout-btn">Proceed to Checkout</a>
+          <a href="/shop.html" class="btn btn-outline btn-full" style="margin-top:.5rem">Continue Shopping</a>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer"><div class="container footer-inner"><p>&copy; 2024 Artisan Gem Works</p></div></footer>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/cart.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      updateCartCount();
+      renderCartPage();
+      const loc = getLocation();
+      const el = document.getElementById('cart-location');
+      if (el) el.textContent = loc === 'sea' ? 'Seattle' : 'Portland';
+    });
+  </script>
+</body>
+</html>

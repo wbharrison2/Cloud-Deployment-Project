@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout — Artisan Gem Works</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+  <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">Artisan Gem Works</a>
+      <div class="header-actions"><a href="/cart.html" class="btn-icon">← Back to Cart</a></div>
+    </div>
+  </header>
+
+  <main class="page-main">
+    <div class="container">
+      <h1 class="page-title">Checkout</h1>
+      <div class="checkout-layout">
+        <div class="checkout-form">
+          <section class="checkout-section">
+            <h2>Contact</h2>
+            <div class="form-group"><label for="email">Email</label><input type="email" id="email" autocomplete="email" required></div>
+          </section>
+          <section class="checkout-section">
+            <h2>Shipping</h2>
+            <div class="form-row">
+              <div class="form-group"><label for="first-name">First name</label><input type="text" id="first-name" autocomplete="given-name" required></div>
+              <div class="form-group"><label for="last-name">Last name</label><input type="text" id="last-name" autocomplete="family-name" required></div>
+            </div>
+            <div class="form-group"><label for="address">Address</label><input type="text" id="address" autocomplete="street-address" required></div>
+            <div class="form-row">
+              <div class="form-group"><label for="city">City</label><input type="text" id="city" autocomplete="address-level2" required></div>
+              <div class="form-group"><label for="state">State</label><input type="text" id="state" maxlength="2" required></div>
+              <div class="form-group"><label for="zip">ZIP</label><input type="text" id="zip" maxlength="10" required></div>
+            </div>
+          </section>
+          <section class="checkout-section">
+            <h2>Payment</h2>
+            <div class="stripe-notice">Secured by Stripe — test mode</div>
+            <div id="stripe-card-element" class="stripe-card-element"></div>
+            <div id="stripe-error" class="stripe-error hidden"></div>
+          </section>
+          <button class="btn btn-primary btn-full" id="place-order-btn" onclick="placeOrder()">Place Order</button>
+          <p id="order-processing" class="hidden text-muted" style="text-align:center;margin-top:1rem">Processing your order...</p>
+        </div>
+        <aside class="checkout-summary">
+          <h2>Order Summary</h2>
+          <div class="summary-row"><span>Location</span><span id="summary-location">—</span></div>
+          <div id="order-items"></div>
+          <div class="summary-row summary-total"><span>Total</span><span id="order-total">—</span></div>
+        </aside>
+      </div>
+      <div id="order-success" class="order-success hidden">
+        <h2>Order Placed!</h2>
+        <p>Thank you! You'll receive a confirmation shortly.</p>
+        <p id="order-id-display"></p>
+        <a href="/shop.html" class="btn btn-primary">Continue Shopping</a>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer"><div class="container footer-inner"><p>&copy; 2024 Artisan Gem Works</p></div></footer>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/cart.js"></script>
+  <script>
+    let stripe, cardElement;
+    document.addEventListener('DOMContentLoaded', async () => {
+      const loc = getLocation();
+      document.getElementById('summary-location').textContent = loc === 'sea' ? 'Seattle' : 'Portland';
+      renderOrderSummary();
+      await initStripe();
+    });
+
+    async function initStripe() {
+      try {
+        const cfg = await fetchAPI('/api/config');
+        stripe = Stripe(cfg.stripePublicKey);
+        const elements = stripe.elements();
+        cardElement = elements.create('card', { style: { base: { fontFamily: 'Inter,sans-serif', fontSize: '16px' } } });
+        cardElement.mount('#stripe-card-element');
+        cardElement.on('change', e => {
+          const err = document.getElementById('stripe-error');
+          err.textContent = e.error ? e.error.message : '';
+          err.classList.toggle('hidden', !e.error);
+        });
+      } catch(e) {
+        document.getElementById('stripe-error').textContent = 'Payment system unavailable.';
+        document.getElementById('stripe-error').classList.remove('hidden');
+      }
+    }
+
+    function renderOrderSummary() {
+      const cart = getCart();
+      if (!cart.length) { window.location.href = '/cart.html'; return; }
+      const container = document.getElementById('order-items');
+      container.innerHTML = cart.map(i => `<div class="summary-row"><span>${i.name} &times; ${i.quantity}</span><span>${formatPrice(i.price * i.quantity)}</span></div>`).join('');
+      document.getElementById('order-total').textContent = formatPrice(cart.reduce((s,i) => s + i.price * i.quantity, 0));
+    }
+
+    async function placeOrder() {
+      const btn = document.getElementById('place-order-btn');
+      btn.disabled = true;
+      document.getElementById('order-processing').classList.remove('hidden');
+      const cart = getCart();
+      const email = document.getElementById('email').value.trim();
+      if (!email || !cart.length) { btn.disabled = false; return; }
+      try {
+        let paymentMethodId = null;
+        if (stripe && cardElement) {
+          const { paymentMethod, error } = await stripe.createPaymentMethod({ type: 'card', card: cardElement });
+          if (error) { showStripeError(error.message); btn.disabled = false; return; }
+          paymentMethodId = paymentMethod.id;
+        }
+        const order = await fetchAPI('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: cart.map(i => ({ product_id: i.id, quantity: i.quantity, price: i.price })),
+            customer_email: email,
+            customer_name: document.getElementById('first-name').value + ' ' + document.getElementById('last-name').value,
+            shipping_address: [document.getElementById('address').value, document.getElementById('city').value, document.getElementById('state').value, document.getElementById('zip').value].join(', '),
+            location: getLocation(),
+            payment_method_id: paymentMethodId
+          })
+        });
+        clearCart();
+        document.querySelector('.checkout-layout').classList.add('hidden');
+        document.getElementById('order-success').classList.remove('hidden');
+        document.getElementById('order-id-display').textContent = 'Order #' + order.order_id;
+      } catch(e) {
+        showStripeError(e.message || 'Order failed.');
+        btn.disabled = false;
+        document.getElementById('order-processing').classList.add('hidden');
+      }
+    }
+
+    function showStripeError(msg) {
+      const err = document.getElementById('stripe-error');
+      err.textContent = msg; err.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

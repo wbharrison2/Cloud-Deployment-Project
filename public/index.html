@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Artisan Gem Works — Handcrafted Jewelry | Portland & Seattle</title>
+  <meta name="description" content="Handcrafted jewelry inspired by the Pacific Northwest. Two locations: Portland and Seattle.">
+  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="location-banner" id="location-banner">
+    <div class="container">
+      <span>Choose your location:</span>
+      <button class="loc-btn" onclick="setLocation('pdx')" id="loc-pdx">Portland</button>
+      <button class="loc-btn" onclick="setLocation('sea')" id="loc-sea">Seattle</button>
+    </div>
+  </div>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">Artisan Gem Works</a>
+      <nav class="main-nav">
+        <a href="/shop.html">Shop</a>
+        <a href="/#locations">Locations</a>
+        <a href="/#about">About</a>
+      </nav>
+      <div class="header-actions">
+        <span class="location-badge" id="header-location"></span>
+        <a href="/account.html" class="btn-icon">Account</a>
+        <a href="/cart.html" class="btn-icon cart-link">Cart (<span id="cart-count">0</span>)</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="hero-pdx">
+      <div class="container hero-content">
+        <span class="hero-eyebrow">Portland Flagship</span>
+        <h1>Jewelry With a Story</h1>
+        <p>Handcrafted in the Pacific Northwest — inspired by mountains, rivers, and coastal forests.</p>
+        <a href="/shop.html" class="btn btn-primary">Shop Portland Collection</a>
+      </div>
+    </section>
+    <section class="hero hero-sea hidden" id="hero-sea">
+      <div class="container hero-content">
+        <span class="hero-eyebrow">Seattle Ballard</span>
+        <h1>Crafted for the Emerald City</h1>
+        <p>Seattle-exclusive pieces alongside our Pacific Northwest favorites — all handmade.</p>
+        <a href="/shop.html" class="btn btn-primary">Shop Seattle Collection</a>
+      </div>
+    </section>
+
+    <section class="section featured-section">
+      <div class="container">
+        <div class="section-header-row">
+          <h2 class="section-title">Featured Pieces</h2>
+          <span class="location-tag" id="featured-location-tag"></span>
+        </div>
+        <div class="product-grid" id="featured-products"></div>
+        <div class="section-footer"><a href="/shop.html" class="btn btn-outline">View Full Collection</a></div>
+      </div>
+    </section>
+
+    <section class="section values-section">
+      <div class="container values-grid">
+        <div class="value-card"><span class="value-icon">&#9670;</span><h3>Handcrafted</h3><p>Every ring, pendant, and cuff is made by hand in our Portland studio.</p></div>
+        <div class="value-card"><span class="value-icon">&#9670;</span><h3>Two Locations</h3><p>Visit us in Portland's NW District or Seattle's Ballard neighborhood.</p></div>
+        <div class="value-card"><span class="value-icon">&#9670;</span><h3>Local Exclusives</h3><p>Each location carries region-specific pieces inspired by local landscapes.</p></div>
+      </div>
+    </section>
+
+    <section class="section locations-section" id="locations">
+      <div class="container">
+        <h2 class="section-title">Our Locations</h2>
+        <div class="locations-grid" id="locations-grid"><p class="text-muted">Loading locations...</p></div>
+      </div>
+    </section>
+
+    <section class="section about-section" id="about">
+      <div class="container about-inner">
+        <div class="about-text">
+          <h2>About Artisan Gem Works</h2>
+          <p>Founded in 2019 by Mira Chen, Artisan Gem Works began as a craft-fair table in Portland's Pearl District. After five years and a loyal following across the Pacific Northwest, we opened our second home in Seattle's Ballard neighborhood in 2024.</p>
+          <p>Every piece is still shaped, soldered, and finished by hand — carrying the spirit of the landscape that inspired it.</p>
+        </div>
+        <div class="about-image"><div class="img-placeholder">Studio Photo</div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <p>&copy; 2024 Artisan Gem Works. All rights reserved.</p>
+      <nav class="footer-nav">
+        <a href="/shop.html">Shop</a>
+        <a href="/#locations">Locations</a>
+        <a href="/#about">About</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/shop.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      updateCartCount();
+      initLocationUI();
+      loadLocationsSection();
+      loadFeaturedProducts();
+    });
+
+    function initLocationUI() {
+      const loc = getLocation();
+      updateLocationDisplay(loc);
+    }
+
+    function updateLocationDisplay(loc) {
+      document.getElementById('hero-pdx').classList.toggle('hidden', loc === 'sea');
+      document.getElementById('hero-sea').classList.toggle('hidden', loc !== 'sea');
+      document.getElementById('loc-pdx').classList.toggle('active', loc === 'pdx');
+      document.getElementById('loc-sea').classList.toggle('active', loc === 'sea');
+      const badge = document.getElementById('header-location');
+      badge.textContent = loc === 'sea' ? 'Seattle' : 'Portland';
+      const tag = document.getElementById('featured-location-tag');
+      tag.textContent = loc === 'sea' ? 'Seattle picks' : 'Portland picks';
+    }
+
+    async function loadLocationsSection() {
+      const grid = document.getElementById('locations-grid');
+      try {
+        const res = await fetchAPI('/api/locations');
+        grid.innerHTML = res.locations.map(loc => `
+          <div class="location-card">
+            <h3>${loc.name}</h3>
+            <p>${loc.address}</p>
+            <p><a href="tel:${loc.phone.replace(/\D/g,'')}">${loc.phone}</a></p>
+            <p class="text-muted">${formatHours(loc.hours)}</p>
+            <p class="text-muted">Manager: ${loc.manager}</p>
+            <button class="btn btn-outline btn-sm" onclick="setLocation('${loc.slug}');window.scrollTo(0,0)">Shop This Location</button>
+          </div>
+        `).join('');
+      } catch(e) { grid.innerHTML = '<p class="text-muted">Unable to load locations.</p>'; }
+    }
+
+    function formatHours(h) {
+      if (!h || typeof h !== 'object') return '';
+      return Object.entries(h).map(([k,v]) => k + ': ' + v).join(' | ');
+    }
+
+    async function loadFeaturedProducts() {
+      const grid = document.getElementById('featured-products');
+      const loc = getLocation();
+      try {
+        const res = await fetchAPI('/api/products?featured=true&limit=4&location=' + loc);
+        const products = res.products || res;
+        grid.innerHTML = products.slice(0,4).map(renderProductCard).join('');
+      } catch(e) { grid.innerHTML = '<p class="text-muted">Unable to load featured products.</p>'; }
+    }
+  </script>
+</body>
+</html>

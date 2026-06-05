@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Artisan Gem Works</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body class="admin-body">
+  <div class="admin-shell">
+    <aside class="admin-sidebar">
+      <div class="sidebar-brand">AGW Admin</div>
+      <nav class="sidebar-nav">
+        <a href="#" onclick="showTab('dashboard')" class="nav-item active" id="nav-dashboard">Dashboard</a>
+        <a href="#" onclick="showTab('products')"  class="nav-item" id="nav-products">Products</a>
+        <a href="#" onclick="showTab('orders')"    class="nav-item" id="nav-orders">Orders</a>
+        <a href="#" onclick="showTab('security')"  class="nav-item" id="nav-security">Security</a>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="btn btn-ghost btn-sm" onclick="handleAdminLogout()">Sign Out</button>
+      </div>
+    </aside>
+
+    <div class="admin-main">
+      <!-- Login -->
+      <div id="admin-login" class="admin-login-overlay">
+        <div class="admin-login-card">
+          <h1>Admin Login</h1>
+          <p class="text-muted">Artisan Gem Works Control Panel</p>
+          <div class="form-group"><label>Email</label><input type="email" id="admin-email" autocomplete="username"></div>
+          <div class="form-group"><label>Password</label><input type="password" id="admin-password" autocomplete="current-password"></div>
+          <div id="admin-login-error" class="form-error hidden"></div>
+          <button class="btn btn-primary btn-full" onclick="handleAdminLogin()">Sign In</button>
+        </div>
+      </div>
+
+      <!-- 2FA -->
+      <div id="admin-twofa" class="admin-login-overlay hidden">
+        <div class="admin-login-card">
+          <h1>Two-Factor Auth</h1>
+          <p class="text-muted">Enter the 6-digit code from your authenticator app.</p>
+          <div class="form-group"><label>Code</label><input type="text" id="admin-totp" maxlength="20" inputmode="numeric" placeholder="123456"></div>
+          <div id="admin-twofa-error" class="form-error hidden"></div>
+          <button class="btn btn-primary btn-full" onclick="handleAdminTwoFA()">Verify</button>
+          <button class="btn btn-ghost btn-full" style="margin-top:.5rem" onclick="cancelAdminTwoFA()">← Back</button>
+        </div>
+      </div>
+
+      <!-- Dashboard -->
+      <section id="tab-dashboard" class="admin-tab">
+        <div class="tab-header"><h1>Dashboard</h1></div>
+        <div class="stats-grid">
+          <div class="stat-card"><span class="stat-number" id="stat-products">—</span><span class="stat-label">Products</span></div>
+          <div class="stat-card"><span class="stat-number" id="stat-orders">—</span><span class="stat-label">Total Orders</span></div>
+          <div class="stat-card"><span class="stat-number" id="stat-pdx-orders">—</span><span class="stat-label">Portland Orders</span></div>
+          <div class="stat-card"><span class="stat-number" id="stat-sea-orders">—</span><span class="stat-label">Seattle Orders</span></div>
+          <div class="stat-card"><span class="stat-number" id="stat-cache">—</span><span class="stat-label">Cache</span></div>
+        </div>
+        <div class="dashboard-actions">
+          <button class="btn btn-outline" onclick="clearCache()">Clear Redis Cache</button>
+        </div>
+        <div id="dashboard-feedback" class="feedback hidden" style="margin-top:1rem"></div>
+      </section>
+
+      <!-- Products -->
+      <section id="tab-products" class="admin-tab hidden">
+        <div class="tab-header">
+          <h1>Products</h1>
+          <div style="display:flex;gap:.5rem;align-items:center">
+            <select id="product-location-filter" class="sort-select" onchange="loadProducts()">
+              <option value="">All Locations</option>
+              <option value="shared">Shared</option>
+              <option value="pdx">Portland</option>
+              <option value="sea">Seattle</option>
+            </select>
+            <button class="btn btn-primary" onclick="openProductModal()">+ Add Product</button>
+          </div>
+        </div>
+        <div id="products-table-wrapper"><p class="text-muted">Loading...</p></div>
+      </section>
+
+      <!-- Orders -->
+      <section id="tab-orders" class="admin-tab hidden">
+        <div class="tab-header">
+          <h1>Orders</h1>
+          <select id="order-location-filter" class="sort-select" onchange="loadOrders()">
+            <option value="">All Locations</option>
+            <option value="pdx">Portland</option>
+            <option value="sea">Seattle</option>
+          </select>
+        </div>
+        <div id="orders-table-wrapper"><p class="text-muted">Loading...</p></div>
+      </section>
+
+      <!-- Security -->
+      <section id="tab-security" class="admin-tab hidden">
+        <div class="tab-header"><h1>Security</h1></div>
+        <div class="card" id="twofa-card">
+          <h2>Two-Factor Authentication</h2>
+          <p id="twofa-status-msg" class="text-muted"></p>
+          <div id="twofa-setup-init" class="hidden">
+            <p>Scan the QR code with your authenticator app to enable 2FA.</p>
+            <button class="btn btn-primary" onclick="initTwoFASetup()">Set Up 2FA</button>
+          </div>
+          <div id="twofa-setup-qr" class="hidden">
+            <p>Scan this QR code:</p>
+            <div id="twofa-qr-container" class="twofa-qr"></div>
+            <p class="text-muted">Manual: <code id="twofa-secret-text"></code></p>
+            <div class="form-group" style="margin-top:1rem">
+              <label>Enter the 6-digit code shown in your app</label>
+              <input type="text" id="twofa-confirm-code" maxlength="6" inputmode="numeric" placeholder="123456" style="max-width:200px">
+            </div>
+            <div id="twofa-setup-error" class="form-error hidden"></div>
+            <button class="btn btn-primary" onclick="enableTwoFA()">Enable 2FA</button>
+            <button class="btn btn-ghost" onclick="cancelTwoFASetup()" style="margin-left:.5rem">Cancel</button>
+          </div>
+          <div id="twofa-setup-done" class="hidden">
+            <div class="twofa-enabled-badge">&#10003; 2FA is active</div>
+            <div id="backup-codes-section" class="hidden"><h3>Backup Codes</h3><div id="backup-codes-grid" class="backup-codes-grid"></div></div>
+            <div style="margin-top:1rem">
+              <h3>Disable 2FA</h3>
+              <div class="form-group"><input type="text" id="twofa-disable-code" maxlength="6" inputmode="numeric" placeholder="Current code" style="max-width:200px"></div>
+              <div id="twofa-disable-error" class="form-error hidden"></div>
+              <button class="btn btn-danger" onclick="disableTwoFA()">Disable 2FA</button>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:1.5rem">
+          <div class="card-header-row"><h2>Audit Log</h2><button class="btn btn-outline btn-sm" onclick="loadAuditLog(1)">Refresh</button></div>
+          <div id="audit-log-wrapper"><p class="text-muted">Loading...</p></div>
+          <div id="audit-pagination" class="pagination" style="margin-top:1rem"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Product Modal -->
+  <div id="product-modal" class="modal-overlay hidden" onclick="closeModalOnBackdrop(event)">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="modal-title">Add Product</h2>
+        <button class="modal-close" onclick="closeProductModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-product-id">
+        <div class="form-row">
+          <div class="form-group"><label>Name <span class="required">*</span></label><input type="text" id="modal-name" required></div>
+          <div class="form-group"><label>Slug <span class="required">*</span></label><input type="text" id="modal-slug" required></div>
+        </div>
+        <div class="form-group"><label>Description</label><textarea id="modal-description" rows="3"></textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label>Price ($) <span class="required">*</span></label><input type="number" id="modal-price" step="0.01" min="0" required></div>
+          <div class="form-group"><label>Stock <span class="required">*</span></label><input type="number" id="modal-stock" min="0" required></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Category</label><input type="text" id="modal-category"></div>
+          <div class="form-group"><label>Material</label><input type="text" id="modal-material"></div>
+        </div>
+        <div class="form-group">
+          <label>Location</label>
+          <select id="modal-store-id" class="sort-select" style="width:100%">
+            <option value="">Shared (all locations)</option>
+            <option value="pdx">Portland only</option>
+            <option value="sea">Seattle only</option>
+          </select>
+        </div>
+        <label class="checkbox-label"><input type="checkbox" id="modal-featured"> Featured on homepage</label>
+        <div id="modal-error" class="form-error hidden"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeProductModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveProduct()">Save Product</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/admin.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', () => { checkAdminAuth(); });</script>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account — Artisan Gem Works</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">Artisan Gem Works</a>
+      <nav class="main-nav"><a href="/shop.html">Shop</a><a href="/#locations">Locations</a></nav>
+      <div class="header-actions">
+        <a href="/cart.html" class="btn-icon cart-link">Cart (<span id="cart-count">0</span>)</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-main">
+    <div class="container">
+      <div id="auth-section">
+        <div class="auth-card">
+          <div class="auth-tabs">
+            <button class="auth-tab active" onclick="switchTab('login')" id="tab-login">Sign In</button>
+            <button class="auth-tab" onclick="switchTab('register')" id="tab-register">Create Account</button>
+          </div>
+          <div id="login-form">
+            <h1>Welcome Back</h1>
+            <div class="form-group"><label for="login-email">Email</label><input type="email" id="login-email" autocomplete="email" required></div>
+            <div class="form-group"><label for="login-password">Password</label><input type="password" id="login-password" autocomplete="current-password" required></div>
+            <div id="login-error" class="form-error hidden"></div>
+            <button class="btn btn-primary btn-full" onclick="handleLogin()">Sign In</button>
+          </div>
+          <div id="two-fa-form" class="hidden">
+            <h2>Two-Factor Authentication</h2>
+            <p class="text-muted">Enter the 6-digit code from your authenticator app.</p>
+            <div class="form-group"><label for="totp-code">Authenticator Code</label><input type="text" id="totp-code" maxlength="20" inputmode="numeric" placeholder="123456"></div>
+            <div id="twofa-error" class="form-error hidden"></div>
+            <button class="btn btn-primary btn-full" onclick="handleTwoFA()">Verify</button>
+            <button class="btn btn-ghost btn-full" style="margin-top:.5rem" onclick="cancelTwoFA()">← Back</button>
+          </div>
+          <div id="register-form" class="hidden">
+            <h1>Create Account</h1>
+            <div class="form-row">
+              <div class="form-group"><label for="reg-first-name">First Name</label><input type="text" id="reg-first-name" autocomplete="given-name" required></div>
+              <div class="form-group"><label for="reg-last-name">Last Name</label><input type="text" id="reg-last-name" autocomplete="family-name" required></div>
+            </div>
+            <div class="form-group"><label for="reg-email">Email</label><input type="email" id="reg-email" autocomplete="email" required></div>
+            <div class="form-group"><label for="reg-password">Password <span class="hint">(min 8 chars)</span></label><input type="password" id="reg-password" minlength="8" required></div>
+            <div id="register-error" class="form-error hidden"></div>
+            <button class="btn btn-primary btn-full" onclick="handleRegister()">Create Account</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="account-section" class="hidden">
+        <div class="account-header">
+          <h1>My Account</h1>
+          <button class="btn btn-outline" onclick="handleLogout()">Sign Out</button>
+        </div>
+        <p id="account-greeting" class="account-greeting"></p>
+        <section class="account-section-block">
+          <h2>Order History</h2>
+          <div id="order-list"><p class="text-muted">Loading...</p></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer"><div class="container footer-inner"><p>&copy; 2024 Artisan Gem Works</p></div></footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    let tempToken = null;
+    document.addEventListener('DOMContentLoaded', async () => { updateCartCount(); await checkAuthState(); });
+
+    async function checkAuthState() {
+      try { showAccountDashboard(await fetchAPI('/api/auth/me')); }
+      catch(e) { document.getElementById('auth-section').classList.remove('hidden'); document.getElementById('account-section').classList.add('hidden'); }
+    }
+
+    function showAccountDashboard(user) {
+      document.getElementById('auth-section').classList.add('hidden');
+      document.getElementById('account-section').classList.remove('hidden');
+      document.getElementById('account-greeting').textContent = 'Welcome, ' + (user.first_name || user.email) + '!';
+      loadOrders();
+    }
+
+    function switchTab(tab) {
+      document.getElementById('login-form').classList.toggle('hidden', tab !== 'login');
+      document.getElementById('register-form').classList.toggle('hidden', tab !== 'register');
+      document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+      document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+    }
+
+    async function handleLogin() {
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      const errDiv = document.getElementById('login-error');
+      errDiv.classList.add('hidden');
+      try {
+        const res = await fetchAPI('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+        if (res.two_factor_required) { tempToken = res.temp_token; document.getElementById('login-form').classList.add('hidden'); document.getElementById('two-fa-form').classList.remove('hidden'); return; }
+        showAccountDashboard(await fetchAPI('/api/auth/me'));
+      } catch(e) { errDiv.textContent = e.message || 'Login failed.'; errDiv.classList.remove('hidden'); }
+    }
+
+    async function handleTwoFA() {
+      const token = document.getElementById('totp-code').value.trim();
+      const errDiv = document.getElementById('twofa-error');
+      errDiv.classList.add('hidden');
+      try {
+        await fetchAPI('/api/auth/2fa/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ temp_token: tempToken, token }) });
+        tempToken = null;
+        showAccountDashboard(await fetchAPI('/api/auth/me'));
+      } catch(e) { errDiv.textContent = e.message || 'Invalid code.'; errDiv.classList.remove('hidden'); }
+    }
+
+    function cancelTwoFA() { tempToken = null; document.getElementById('two-fa-form').classList.add('hidden'); document.getElementById('login-form').classList.remove('hidden'); }
+
+    async function handleRegister() {
+      const errDiv = document.getElementById('register-error');
+      errDiv.classList.add('hidden');
+      try {
+        await fetchAPI('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ first_name: document.getElementById('reg-first-name').value.trim(), last_name: document.getElementById('reg-last-name').value.trim(), email: document.getElementById('reg-email').value.trim(), password: document.getElementById('reg-password').value }) });
+        showAccountDashboard(await fetchAPI('/api/auth/me'));
+      } catch(e) { errDiv.textContent = e.message || 'Registration failed.'; errDiv.classList.remove('hidden'); }
+    }
+
+    async function handleLogout() {
+      try { await fetchAPI('/api/auth/logout', { method: 'POST' }); } catch(e) {}
+      document.getElementById('auth-section').classList.remove('hidden');
+      document.getElementById('account-section').classList.add('hidden');
+    }
+
+    async function loadOrders() {
+      const container = document.getElementById('order-list');
+      try {
+        const res = await fetchAPI('/api/orders/mine');
+        const orders = res.orders || res;
+        if (!orders.length) { container.innerHTML = '<p class="text-muted">No orders yet.</p>'; return; }
+        container.innerHTML = `<table class="data-table">
+          <thead><tr><th>Order</th><th>Location</th><th>Date</th><th>Total</th><th>Status</th></tr></thead>
+          <tbody>${orders.map(o => `<tr>
+            <td>#${o.id}</td>
+            <td>${o.store_name || '—'}</td>
+            <td>${new Date(o.created_at).toLocaleDateString()}</td>
+            <td>${formatPrice(o.total)}</td>
+            <td><span class="status-badge status-${o.status}">${o.status}</span></td>
+          </tr>`).join('')}</tbody>
+        </table>`;
+      } catch(e) { container.innerHTML = '<p class="text-muted">Unable to load orders.</p>'; }
+    }
+  </script>
+</body>
+</html>
