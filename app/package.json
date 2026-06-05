@@ -1,0 +1,22 @@
+{
+  "name": "artisan-gem-works-p4",
+  "version": "4.0.0",
+  "description": "Artisan Gem Works Franchise - High Availability Platform",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "dev": "node --watch server.js", "seed": "node db/seed.js" },
+  "dependencies": {
+    "@aws-sdk/client-cloudfront": "^3.490.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.3.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.3",
+    "qrcode": "^1.5.3",
+    "speakeasy": "^2.0.0",
+    "stripe": "^14.10.0",
+    "uuid": "^9.0.0"
+  }
+}
