@@ -1,339 +1,209 @@
-###############################################################################
-# PROJECT 1 — CLOUD INFRASTRUCTURE & DEVELOPMENT
-# Author : Wilton B. Harrison
-# Purpose: Provision a production-grade 3-tier AWS VPC with public/private
-#          subnets, EC2 web server, S3 artifact bucket, security groups,
-#          and IAM roles using Terraform IaC.
-# Tools  : Terraform >= 1.6, AWS Provider >= 5.0 (open-source / free tier)
-###############################################################################
+# Project 4 — Franchise HA: Terraform
+# PostgreSQL RDS Multi-AZ + ElastiCache Redis + ECS desired_count=2
 
 terraform {
-  required_version = ">= 1.6.0"
+  required_version = ">= 1.5"
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
+    aws = { source = "hashicorp/aws", version = "~> 5.0" }
   }
-
-  # Remote state — swap bucket/key for your environment
   backend "s3" {
-    bucket         = "wbh-terraform-state"
-    key            = "project1/cloud-infra/terraform.tfstate"
-    region         = "us-east-1"
-    encrypt        = true
-    dynamodb_table = "wbh-tf-lock"
+    bucket = "agw-terraform-state"
+    key    = "p4-franchise-ha/terraform.tfstate"
+    region = "us-west-2"
   }
 }
 
-provider "aws" {
-  region = var.aws_region
-  default_tags {
-    tags = {
-      Project     = "Cloud-Infra-Dev"
-      Owner       = "Wilton B. Harrison"
-      Environment = var.environment
-      ManagedBy   = "Terraform"
-    }
-  }
-}
+provider "aws" { region = var.aws_region }
+provider "aws" { alias = "us_east_1"; region = "us-east-1" }
 
-###############################################################################
-# VARIABLES
-###############################################################################
+variable "aws_region"      { default = "us-west-2" }
+variable "app_name"        { default = "agw-p4" }
+variable "domain_name"     { default = "artisangemworks.com" }
+variable "container_image" {}
+variable "db_password"     { sensitive = true }
 
-variable "aws_region"   { default = "us-east-1" }
-variable "environment"  { default = "dev" }
-variable "project_name" { default = "wbh-cloud-infra" }
-variable "vpc_cidr"     { default = "10.0.0.0/16" }
+data "aws_availability_zones" "available" { state = "available" }
 
-variable "public_subnets" {
-  default = ["10.0.1.0/24", "10.0.2.0/24"]
-}
-variable "private_subnets" {
-  default = ["10.0.10.0/24", "10.0.11.0/24"]
-}
-variable "data_subnets" {
-  default = ["10.0.20.0/24", "10.0.21.0/24"]
-}
-
-variable "ami_id"        { default = "ami-0c02fb55956c7d316" } # Amazon Linux 2
-variable "instance_type" { default = "t3.micro" }
-variable "key_pair_name" { default = "wbh-dev-key" }
-
-###############################################################################
-# DATA SOURCES
-###############################################################################
-
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
-data "aws_caller_identity" "current" {}
-
-###############################################################################
-# VPC
-###############################################################################
-
-resource "aws_vpc" "main" {
-  cidr_block           = var.vpc_cidr
-  enable_dns_support   = true
-  enable_dns_hostnames = true
-
-  tags = { Name = "${var.project_name}-vpc" }
-}
-
-# Internet Gateway (public egress)
-resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.main.id
-  tags   = { Name = "${var.project_name}-igw" }
-}
-
-###############################################################################
-# SUBNETS — 3-TIER ARCHITECTURE
-###############################################################################
-
-# Tier 1: Public (web / load balancer)
+# ── VPC ─────────────────────────────────────────────────────────
+resource "aws_vpc" "agw" { cidr_block = "10.0.0.0/16"; enable_dns_hostnames = true; tags = { Name = "${var.app_name}-vpc" } }
+resource "aws_internet_gateway" "agw" { vpc_id = aws_vpc.agw.id }
 resource "aws_subnet" "public" {
-  count                   = length(var.public_subnets)
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnets[count.index]
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  count = 2; vpc_id = aws_vpc.agw.id
+  cidr_block = "10.0.${count.index}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
-  tags                    = { Name = "${var.project_name}-public-${count.index + 1}", Tier = "Public" }
+  tags = { Name = "${var.app_name}-public-${count.index}" }
 }
-
-# Tier 2: Private (application)
 resource "aws_subnet" "private" {
-  count             = length(var.private_subnets)
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.private_subnets[count.index]
+  count = 2; vpc_id = aws_vpc.agw.id
+  cidr_block = "10.0.${count.index + 10}.0/24"
   availability_zone = data.aws_availability_zones.available.names[count.index]
-  tags              = { Name = "${var.project_name}-private-${count.index + 1}", Tier = "App" }
+  tags = { Name = "${var.app_name}-private-${count.index}" }
 }
-
-# Tier 3: Data (databases / storage)
-resource "aws_subnet" "data" {
-  count             = length(var.data_subnets)
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.data_subnets[count.index]
-  availability_zone = data.aws_availability_zones.available.names[count.index]
-  tags              = { Name = "${var.project_name}-data-${count.index + 1}", Tier = "Data" }
-}
-
-###############################################################################
-# NAT GATEWAY (private tier egress)
-###############################################################################
-
-resource "aws_eip" "nat" {
-  domain = "vpc"
-  tags   = { Name = "${var.project_name}-nat-eip" }
-}
-
-resource "aws_nat_gateway" "nat" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[0].id
-  tags          = { Name = "${var.project_name}-nat" }
-  depends_on    = [aws_internet_gateway.igw]
-}
-
-###############################################################################
-# ROUTE TABLES
-###############################################################################
-
-# Public — route to IGW
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
-  }
-  tags = { Name = "${var.project_name}-rt-public" }
+  vpc_id = aws_vpc.agw.id
+  route { cidr_block = "0.0.0.0/0"; gateway_id = aws_internet_gateway.agw.id }
 }
-
 resource "aws_route_table_association" "public" {
-  count          = length(aws_subnet.public)
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
+  count = 2; subnet_id = aws_subnet.public[count.index].id; route_table_id = aws_route_table.public.id
 }
 
-# Private — route to NAT
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat.id
-  }
-  tags = { Name = "${var.project_name}-rt-private" }
+# ── Security groups ──────────────────────────────────────────────────
+resource "aws_security_group" "alb" {
+  name = "${var.app_name}-alb"; vpc_id = aws_vpc.agw.id
+  ingress { from_port=80;  to_port=80;  protocol="tcp"; cidr_blocks=["0.0.0.0/0"] }
+  ingress { from_port=443; to_port=443; protocol="tcp"; cidr_blocks=["0.0.0.0/0"] }
+  egress  { from_port=0;   to_port=0;   protocol="-1"; cidr_blocks=["0.0.0.0/0"] }
+}
+resource "aws_security_group" "ecs" {
+  name = "${var.app_name}-ecs"; vpc_id = aws_vpc.agw.id
+  ingress { from_port=3000; to_port=3000; protocol="tcp"; security_groups=[aws_security_group.alb.id] }
+  egress  { from_port=0;    to_port=0;    protocol="-1"; cidr_blocks=["0.0.0.0/0"] }
+}
+resource "aws_security_group" "rds" {
+  name = "${var.app_name}-rds"; vpc_id = aws_vpc.agw.id
+  ingress { from_port=5432; to_port=5432; protocol="tcp"; security_groups=[aws_security_group.ecs.id] }
+  egress  { from_port=0;    to_port=0;    protocol="-1"; cidr_blocks=["0.0.0.0/0"] }
+}
+resource "aws_security_group" "redis" {
+  name = "${var.app_name}-redis"; vpc_id = aws_vpc.agw.id
+  ingress { from_port=6379; to_port=6379; protocol="tcp"; security_groups=[aws_security_group.ecs.id] }
+  egress  { from_port=0;    to_port=0;    protocol="-1"; cidr_blocks=["0.0.0.0/0"] }
 }
 
-resource "aws_route_table_association" "private" {
-  count          = length(aws_subnet.private)
-  subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
+# ── RDS PostgreSQL 15 Multi-AZ ───────────────────────────────────────────
+resource "aws_db_subnet_group" "agw" {
+  name       = "${var.app_name}-db-subnets"
+  subnet_ids = aws_subnet.private[*].id
+}
+resource "aws_db_instance" "agw" {
+  identifier             = "${var.app_name}-pg"
+  engine                 = "postgres"
+  engine_version         = "15.4"
+  instance_class         = "db.t3.medium"
+  allocated_storage      = 20
+  max_allocated_storage  = 100
+  db_name                = "agw"
+  username               = "agw"
+  password               = var.db_password
+  db_subnet_group_name   = aws_db_subnet_group.agw.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  multi_az               = true
+  storage_encrypted      = true
+  backup_retention_period = 7
+  deletion_protection    = true
+  skip_final_snapshot    = false
+  final_snapshot_identifier = "${var.app_name}-final"
+  tags = { Name = "${var.app_name}-primary" }
+}
+resource "aws_db_instance" "read_replica" {
+  identifier             = "${var.app_name}-pg-rr"
+  replicate_source_db    = aws_db_instance.agw.identifier
+  instance_class         = "db.t3.medium"
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  skip_final_snapshot    = true
+  tags = { Name = "${var.app_name}-read-replica" }
 }
 
-###############################################################################
-# SECURITY GROUPS
-###############################################################################
-
-# Web tier — allow HTTP/HTTPS from internet
-resource "aws_security_group" "web" {
-  name        = "${var.project_name}-sg-web"
-  description = "Web tier: allow HTTP/HTTPS inbound"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description = "HTTP"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  ingress {
-    description = "HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  tags = { Name = "${var.project_name}-sg-web" }
+# ── ElastiCache Redis 7.2 ─────────────────────────────────────────────────
+resource "aws_elasticache_subnet_group" "agw" {
+  name       = "${var.app_name}-redis-subnets"
+  subnet_ids = aws_subnet.private[*].id
+}
+resource "aws_elasticache_replication_group" "agw" {
+  replication_group_id       = "${var.app_name}-redis"
+  description                = "AGW P4 Redis"
+  engine_version             = "7.2"
+  node_type                  = "cache.t3.micro"
+  num_cache_clusters         = 2
+  automatic_failover_enabled = true
+  multi_az_enabled           = true
+  subnet_group_name          = aws_elasticache_subnet_group.agw.name
+  security_group_ids         = [aws_security_group.redis.id]
+  at_rest_encryption_enabled = true
+  transit_encryption_enabled = true
 }
 
-# App tier — allow traffic only from web SG
-resource "aws_security_group" "app" {
-  name        = "${var.project_name}-sg-app"
-  description = "App tier: allow inbound from web tier only"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description     = "App port from web tier"
-    from_port       = 8080
-    to_port         = 8080
-    protocol        = "tcp"
-    security_groups = [aws_security_group.web.id]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  tags = { Name = "${var.project_name}-sg-app" }
+# ── ACM + ALB + Route53 ─────────────────────────────────────────────────
+resource "aws_acm_certificate" "cf" { provider=aws.us_east_1; domain_name=var.domain_name; subject_alternative_names=["www.${var.domain_name}"]; validation_method="DNS"; lifecycle{create_before_destroy=true} }
+resource "aws_acm_certificate" "alb" { domain_name=var.domain_name; validation_method="DNS"; lifecycle{create_before_destroy=true} }
+resource "aws_route53_zone" "agw" { name = var.domain_name }
+resource "aws_lb" "agw" { name="${var.app_name}-alb"; load_balancer_type="application"; subnets=aws_subnet.public[*].id; security_groups=[aws_security_group.alb.id] }
+resource "aws_lb_target_group" "app" {
+  name="${var.app_name}-tg"; port=3000; protocol="HTTP"; vpc_id=aws_vpc.agw.id; target_type="ip"
+  health_check { path="/health"; healthy_threshold=2; unhealthy_threshold=3; interval=15 }
+}
+resource "aws_lb_listener" "http" {
+  load_balancer_arn=aws_lb.agw.arn; port=80; protocol="HTTP"
+  default_action { type="redirect"; redirect { port="443"; protocol="HTTPS"; status_code="HTTP_301" } }
+}
+resource "aws_lb_listener" "https" {
+  load_balancer_arn=aws_lb.agw.arn; port=443; protocol="HTTPS"
+  ssl_policy="ELBSecurityPolicy-TLS13-1-2-2021-06"; certificate_arn=aws_acm_certificate.alb.arn
+  default_action { type="forward"; target_group_arn=aws_lb_target_group.app.arn }
 }
 
-# Data tier — allow only from app SG on port 5432 (PostgreSQL)
-resource "aws_security_group" "data" {
-  name        = "${var.project_name}-sg-data"
-  description = "Data tier: allow inbound from app tier only"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description     = "PostgreSQL from app tier"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.app.id]
-  }
-  tags = { Name = "${var.project_name}-sg-data" }
+# ── CloudFront ────────────────────────────────────────────────────────────────
+resource "aws_wafv2_web_acl" "agw" {
+  provider=aws.us_east_1; name="${var.app_name}-waf"; scope="CLOUDFRONT"
+  default_action { allow {} }
+  rule { name="RateLimit"; priority=1; action{block{}}; statement{rate_based_statement{limit=2000;aggregate_key_type="IP"}}
+    visibility_config{cloudwatch_metrics_enabled=true;metric_name="RateLimit";sampled_requests_enabled=true} }
+  rule { name="AWSCommon"; priority=2; override_action{none{}}; statement{managed_rule_group_statement{name="AWSManagedRulesCommonRuleSet";vendor_name="AWS"}}
+    visibility_config{cloudwatch_metrics_enabled=true;metric_name="AWSCommon";sampled_requests_enabled=true} }
+  visibility_config{cloudwatch_metrics_enabled=true;metric_name="${var.app_name}-waf";sampled_requests_enabled=true}
 }
-
-###############################################################################
-# EC2 — WEB SERVER (Public Tier)
-###############################################################################
-
-resource "aws_iam_role" "ec2_role" {
-  name = "${var.project_name}-ec2-role"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action    = "sts:AssumeRole"
-      Effect    = "Allow"
-      Principal = { Service = "ec2.amazonaws.com" }
-    }]
-  })
+resource "aws_cloudfront_distribution" "agw" {
+  enabled=true; is_ipv6_enabled=true; aliases=[var.domain_name,"www.${var.domain_name}"]
+  web_acl_id=aws_wafv2_web_acl.agw.arn; price_class="PriceClass_100"; wait_for_deployment=false
+  origin { domain_name=aws_lb.agw.dns_name; origin_id="alb"
+    custom_origin_config{http_port=80;https_port=443;origin_protocol_policy="https-only";origin_ssl_protocols=["TLSv1.2"]} }
+  ordered_cache_behavior { path_pattern="/css/*"; allowed_methods=["GET","HEAD"]; cached_methods=["GET","HEAD"]; target_origin_id="alb"; viewer_protocol_policy="redirect-to-https"; min_ttl=0; default_ttl=604800; max_ttl=604800; compress=true; forwarded_values{query_string=false;cookies{forward="none"}} }
+  ordered_cache_behavior { path_pattern="/js/*";  allowed_methods=["GET","HEAD"]; cached_methods=["GET","HEAD"]; target_origin_id="alb"; viewer_protocol_policy="redirect-to-https"; min_ttl=0; default_ttl=604800; max_ttl=604800; compress=true; forwarded_values{query_string=false;cookies{forward="none"}} }
+  ordered_cache_behavior { path_pattern="/api/*"; allowed_methods=["DELETE","GET","HEAD","OPTIONS","PATCH","POST","PUT"]; cached_methods=["GET","HEAD"]; target_origin_id="alb"; viewer_protocol_policy="redirect-to-https"; min_ttl=0; default_ttl=0; max_ttl=0; compress=true; forwarded_values{query_string=true;cookies{forward="whitelist";whitelisted_names=["__Host-agw_token"]}} }
+  default_cache_behavior { allowed_methods=["DELETE","GET","HEAD","OPTIONS","PATCH","POST","PUT"]; cached_methods=["GET","HEAD"]; target_origin_id="alb"; viewer_protocol_policy="redirect-to-https"; min_ttl=0; default_ttl=0; max_ttl=0; compress=true; forwarded_values{query_string=true;cookies{forward="all"}} }
+  restrictions { geo_restriction{restriction_type="none"} }
+  viewer_certificate { acm_certificate_arn=aws_acm_certificate.cf.arn; ssl_support_method="sni-only"; minimum_protocol_version="TLSv1.2_2021" }
 }
+resource "aws_route53_record" "apex" { zone_id=aws_route53_zone.agw.zone_id; name=var.domain_name; type="A"; alias{name=aws_cloudfront_distribution.agw.domain_name;zone_id=aws_cloudfront_distribution.agw.hosted_zone_id;evaluate_target_health=false} }
 
-resource "aws_iam_role_policy_attachment" "ssm" {
-  role       = aws_iam_role.ec2_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+# ── ECS Fargate desired_count=2 ────────────────────────────────────────────────
+resource "aws_ecs_cluster" "agw" { name = "${var.app_name}-cluster" }
+resource "aws_iam_role" "exec" {
+  name = "${var.app_name}-ecs-exec"
+  assume_role_policy = jsonencode({Version="2012-10-17";Statement=[{Effect="Allow";Principal={Service="ecs-tasks.amazonaws.com"};Action="sts:AssumeRole"}]})
 }
-
-resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "${var.project_name}-ec2-profile"
-  role = aws_iam_role.ec2_role.name
+resource "aws_iam_role_policy_attachment" "exec" { role=aws_iam_role.exec.name; policy_arn="arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy" }
+resource "aws_iam_role_policy" "cf_invalidate" {
+  name="cf-invalidate"; role=aws_iam_role.exec.id
+  policy=jsonencode({Version="2012-10-17";Statement=[{Effect="Allow";Action=["cloudfront:CreateInvalidation"];Resource="*"}]})
 }
-
-resource "aws_instance" "web" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public[0].id
-  vpc_security_group_ids = [aws_security_group.web.id]
-  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
-  key_name               = var.key_pair_name
-
-  user_data = <<-EOF
-    #!/bin/bash
-    yum update -y
-    yum install -y httpd
-    systemctl start httpd
-    systemctl enable httpd
-    echo "<h1>Project 1 — Cloud Infrastructure Online | WBH</h1>" > /var/www/html/index.html
-  EOF
-
-  root_block_device {
-    volume_type           = "gp3"
-    volume_size           = 20
-    encrypted             = true
-    delete_on_termination = true
-  }
-
-  tags = { Name = "${var.project_name}-web-server" }
+resource "aws_ecs_task_definition" "app" {
+  family="${var.app_name}"; network_mode="awsvpc"; requires_compatibilities=["FARGATE"]
+  cpu="512"; memory="1024"; execution_role_arn=aws_iam_role.exec.arn; task_role_arn=aws_iam_role.exec.arn
+  container_definitions = jsonencode([{
+    name="app"; image=var.container_image; essential=true
+    portMappings=[{containerPort=3000}]
+    environment=[
+      {name="NODE_ENV";value="production"},{name="PORT";value="3000"},
+      {name="DATABASE_URL";value="postgresql://agw:${var.db_password}@${aws_db_instance.agw.address}:5432/agw"},
+      {name="REDIS_URL";value="rediss://${aws_elasticache_replication_group.agw.primary_endpoint_address}:6379"},
+      {name="COOKIE_SECRET";value="REPLACE_WITH_SECRET"},{name="TOTP_ISSUER";value="Artisan Gem Works"}
+    ]
+    logConfiguration={logDriver="awslogs";options={"awslogs-group"="/ecs/${var.app_name}";"awslogs-region"=var.aws_region;"awslogs-stream-prefix"="app"}}
+  }])
 }
-
-###############################################################################
-# S3 — ARTIFACT / DEPLOYMENT BUCKET
-###############################################################################
-
-resource "aws_s3_bucket" "artifacts" {
-  bucket        = "${var.project_name}-artifacts-${data.aws_caller_identity.current.account_id}"
-  force_destroy = false
-  tags          = { Name = "${var.project_name}-artifacts" }
+resource "aws_ecs_service" "app" {
+  name="${var.app_name}-svc"; cluster=aws_ecs_cluster.agw.id
+  task_definition=aws_ecs_task_definition.app.arn
+  desired_count=2; launch_type="FARGATE"
+  deployment_minimum_healthy_percent=50
+  deployment_maximum_percent=200
+  network_configuration { subnets=aws_subnet.public[*].id; security_groups=[aws_security_group.ecs.id]; assign_public_ip=true }
+  load_balancer { target_group_arn=aws_lb_target_group.app.arn; container_name="app"; container_port=3000 }
 }
+resource "aws_cloudwatch_log_group" "app" { name="/ecs/${var.app_name}"; retention_in_days=30 }
 
-resource "aws_s3_bucket_versioning" "artifacts" {
-  bucket = aws_s3_bucket.artifacts.id
-  versioning_configuration { status = "Enabled" }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
-  bucket = aws_s3_bucket.artifacts.id
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "artifacts" {
-  bucket                  = aws_s3_bucket.artifacts.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-###############################################################################
-# OUTPUTS
-###############################################################################
-
-output "vpc_id"          { value = aws_vpc.main.id }
-output "web_instance_ip" { value = aws_instance.web.public_ip }
-output "s3_bucket_name"  { value = aws_s3_bucket.artifacts.bucket }
-output "web_url"         { value = "http://${aws_instance.web.public_ip}" }
+output "cloudfront_domain" { value = aws_cloudfront_distribution.agw.domain_name }
+output "rds_endpoint"      { value = aws_db_instance.agw.address }
+output "redis_endpoint"    { value = aws_elasticache_replication_group.agw.primary_endpoint_address }
