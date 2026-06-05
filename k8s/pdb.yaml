@@ -1,0 +1,12 @@
+# PodDisruptionBudget ensures at least 1 pod is always available
+# during voluntary disruptions (node drain, cluster upgrades).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agw-app
+  namespace: agw-production
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: agw-app

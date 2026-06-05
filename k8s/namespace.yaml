@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agw-production
+  labels:
+    app.kubernetes.io/name: artisan-gem-works
+    app.kubernetes.io/managed-by: argocd

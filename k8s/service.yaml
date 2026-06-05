@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: agw-app
+  namespace: agw-production
+  labels:
+    app: agw-app
+spec:
+  selector:
+    app: agw-app
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: ClusterIP

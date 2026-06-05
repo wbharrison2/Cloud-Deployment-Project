@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agw-app
+  namespace: agw-production
+  labels:
+    app: agw-app
+    version: latest
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: agw-app
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Zero-downtime: new pods must be ready before old pods are removed
+  template:
+    metadata:
+      labels:
+        app: agw-app
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: agw-app
+          # Image tag is updated by GitHub Actions CI on each deploy
+          image: 123456789012.dkr.ecr.us-west-2.amazonaws.com/agw-app:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: agw-config
+            - secretRef:
+                name: agw-secrets
+          # Liveness probe: checks the process is alive (simple 200 response)
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+          # Readiness probe: checks DB + Redis before accepting traffic
+          # Pods that fail this are removed from the load balancer
+          readinessProbe:
+            httpGet:
+              path: /api/ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]

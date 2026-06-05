@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agw-config
+  namespace: agw-production
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  COOKIE_NAME: "__Host-agw_token"
+  COOKIE_SECURE: "true"
+  COOKIE_SAMESITE: "strict"
+  JWT_EXPIRES_IN: "7d"
+  CORS_ORIGIN: "https://artisangemworks.com"
+  AWS_REGION: "us-west-2"

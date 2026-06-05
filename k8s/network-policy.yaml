@@ -1,0 +1,43 @@
+# Restrict pod-to-pod communication at the application layer.
+# App pods accept traffic only from the ingress controller
+# and initiate connections only to required external services.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agw-app-policy
+  namespace: agw-production
+spec:
+  podSelector:
+    matchLabels:
+      app: agw-app
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from NGINX Ingress Controller only
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # Allow DNS resolution
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS to AWS APIs (CloudFront SDK, ECR, etc.)
+    - ports:
+        - protocol: TCP
+          port: 443
+    # Allow PostgreSQL (RDS)
+    - ports:
+        - protocol: TCP
+          port: 5432
+    # Allow Redis TLS (ElastiCache)
+    - ports:
+        - protocol: TCP
+          port: 6379
