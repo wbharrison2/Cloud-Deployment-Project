@@ -1,0 +1,37 @@
+# ArgoCD Application manifest
+# Apply after installing ArgoCD:
+#   kubectl apply -f argocd/application.yaml
+#
+# ArgoCD watches the k8s/ directory and auto-syncs on manifest changes.
+# GitHub Actions CI updates k8s/deployment.yaml image tag on each deploy;
+# ArgoCD detects the change and triggers a rolling update.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agw-app
+  namespace: argocd
+  annotations:
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: deployments
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: deployments
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_ORG/agw-app
+    targetRevision: HEAD
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agw-production
+  syncPolicy:
+    automated:
+      prune: true      # Delete resources removed from k8s/
+      selfHeal: true   # Revert manual kubectl changes (drift correction)
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

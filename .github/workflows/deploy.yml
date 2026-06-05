@@ -1,0 +1,88 @@
+name: CI/CD — Build, Test, Push, Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'app/package-lock.json'
+
+      - name: Install dependencies
+        run: cd app && npm ci
+
+      - name: Run tests
+        run: cd app && npm test
+
+  build-and-deploy:
+    name: Build, Push & Deploy
+    needs: test
+    # Only run on pushes to main, not on pull requests
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to commit updated deployment.yaml back to repo
+      id-token: write  # Required for OIDC authentication to AWS
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build --target production -t $ECR_REGISTRY/agw-app:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/agw-app:$IMAGE_TAG
+          # Also tag as latest for convenience
+          docker tag $ECR_REGISTRY/agw-app:$IMAGE_TAG $ECR_REGISTRY/agw-app:latest
+          docker push $ECR_REGISTRY/agw-app:latest
+          echo "image=$ECR_REGISTRY/agw-app:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Update Kubernetes deployment manifest
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          # Update image in deployment.yaml (ArgoCD picks up this change)
+          sed -i "s|image: .*agw-app:.*|image: $IMAGE|" k8s/deployment.yaml
+          git config user.email "ci@artisangemworks.com"
+          git config user.name "GitHub Actions [CI]"
+          git add k8s/deployment.yaml
+          # Only commit if there's a change
+          git diff --staged --quiet || git commit -m "ci: deploy ${{ github.sha }} [skip ci]"
+          git push
+
+      - name: Notify deployment
+        if: success()
+        run: |
+          echo "Deployment complete."
+          echo "Image: ${{ steps.build.outputs.image }}"
+          echo "ArgoCD will sync the k8s/ directory automatically."
+          echo "Monitor rollout: kubectl rollout status deployment/agw-app -n agw-production"
