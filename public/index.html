@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Artisan Gem Works — Fine Handcrafted Jewelry</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="location-banner">
+    <div class="container">
+      <span>Select your location:</span>
+      <button class="loc-btn" id="loc-pdx" onclick="setLocation('pdx')">Portland</button>
+      <button class="loc-btn" id="loc-sea" onclick="setLocation('sea')">Seattle</button>
+      <span class="location-badge" id="header-location">Portland</span>
+    </div>
+  </div>
+  <header>
+    <div class="container">
+      <div class="logo"><a href="/">Artisan Gem Works</a></div>
+      <nav>
+        <a href="/shop.html">Shop</a>
+        <a href="/account.html">Account</a>
+        <a href="/cart.html" class="cart-link">Cart (<span id="cart-count">0</span>)</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero" id="hero-pdx">
+    <div class="hero-content">
+      <h1>Portland’s Finest Handcrafted Jewelry</h1>
+      <p>Each piece tells the story of the Pacific Northwest — handcrafted at our Thurman Street studio.</p>
+      <a href="/shop.html" class="btn btn-primary">Shop Portland Collection</a>
+    </div>
+  </section>
+  <section class="hero hero-sea" id="hero-sea" style="display:none">
+    <div class="hero-content">
+      <h1>Seattle’s Artisan Jewelry Studio</h1>
+      <p>From Pike Place to Puget Sound — fine jewelry rooted in the Pacific Northwest spirit.</p>
+      <a href="/shop.html" class="btn btn-primary">Shop Seattle Collection</a>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <h2>Featured Pieces</h2>
+      <div class="product-grid" id="featured-grid"><div class="loading">Loading featured pieces…</div></div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container">
+      <h2>Our Locations</h2>
+      <div class="location-cards" id="locations-grid"><div class="loading">Loading locations…</div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container values-grid">
+      <div class="value-card"><h3>Handcrafted</h3><p>Every piece made by hand in our studio, never mass-produced.</p></div>
+      <div class="value-card"><h3>Local Materials</h3><p>Oregon sunstone, Pacific jade, and recycled metals from the region.</p></div>
+      <div class="value-card"><h3>Two Locations</h3><p>Portland’s Thurman St studio and Seattle’s Pine St boutique.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <p>&copy; 2025 Artisan Gem Works. Portland &amp; Seattle.</p>
+      <p>Portland: 2847 NW Thurman St • (503) 555-0142 | Seattle: 412 Pine St • (206) 555-0187</p>
+    </div>
+  </footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      updateLocationUI();
+      const loc = getLocation();
+      const data = await fetchAPI(`/api/products?featured=true&location=${loc}&limit=4`);
+      const grid = document.getElementById('featured-grid');
+      if (data?.products?.length) {
+        grid.innerHTML = data.products.map(renderProductCard).join('');
+      } else {
+        grid.innerHTML = '<p>No featured pieces found.</p>';
+      }
+      const locsData = await fetchAPI('/api/locations');
+      const locsGrid = document.getElementById('locations-grid');
+      if (locsData?.length) {
+        locsGrid.innerHTML = locsData.map(l => `
+          <div class="location-card">
+            <h3>${l.name}</h3>
+            <p>${l.address}</p>
+            <p>${l.phone}</p>
+            <p>Manager: ${l.manager}</p>
+          </div>`).join('');
+      }
+    });
+  </script>
+</body>
+</html>

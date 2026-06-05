@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account — Artisan Gem Works</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="location-banner">
+    <div class="container">
+      <span>Location:</span>
+      <button class="loc-btn" id="loc-pdx" onclick="setLocation('pdx')">Portland</button>
+      <button class="loc-btn" id="loc-sea" onclick="setLocation('sea')">Seattle</button>
+      <span class="location-badge" id="header-location">Portland</span>
+    </div>
+  </div>
+  <header>
+    <div class="container">
+      <div class="logo"><a href="/">Artisan Gem Works</a></div>
+      <nav>
+        <a href="/shop.html">Shop</a>
+        <a href="/account.html" class="active">Account</a>
+        <a href="/cart.html">Cart (<span id="cart-count">0</span>)</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Login overlay -->
+  <div class="modal-overlay" id="login-overlay">
+    <div class="modal">
+      <h2>Sign In</h2>
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="login-tab-btn" onclick="showLoginTab('login')">Login</button>
+      </div>
+      <div id="login-form-section">
+        <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com"></div>
+        <div class="form-group"><label>Password</label><input type="password" id="login-password"></div>
+        <div id="login-error" class="error-msg"></div>
+        <button class="btn btn-primary btn-block" onclick="handleLogin()">Sign In</button>
+      </div>
+      <div id="twofa-form-section" style="display:none">
+        <p>Enter your 6-digit authenticator code:</p>
+        <div class="form-group"><input type="text" id="twofa-code" placeholder="000000" maxlength="6" inputmode="numeric"></div>
+        <div id="twofa-error" class="error-msg"></div>
+        <button class="btn btn-primary btn-block" onclick="handleTwoFA()">Verify</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-header"><div class="container"><h1>My Account</h1></div></div>
+  <div class="container">
+    <div class="account-header">
+      <div><h2 id="user-name">Welcome</h2><p id="user-email"></p></div>
+      <button class="btn btn-outline" onclick="handleLogout()">Sign Out</button>
+    </div>
+    <h3>Order History</h3>
+    <div id="orders-list"><div class="loading">Loading orders…</div></div>
+  </div>
+
+  <footer><div class="container"><p>&copy; 2025 Artisan Gem Works</p></div></footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    let tempToken = null;
+    document.addEventListener('DOMContentLoaded', async () => {
+      updateLocationUI();
+      const user = await fetchAPI('/api/auth/me');
+      if (!user?.user) {
+        document.getElementById('login-overlay').style.display = 'flex';
+        return;
+      }
+      showAccountPage(user.user);
+    });
+    function showAccountPage(user) {
+      document.getElementById('login-overlay').style.display = 'none';
+      document.getElementById('user-name').textContent = user.name || user.email;
+      document.getElementById('user-email').textContent = user.email;
+      loadOrders();
+    }
+    async function handleLogin() {
+      const email = document.getElementById('login-email').value;
+      const password = document.getElementById('login-password').value;
+      const errEl = document.getElementById('login-error');
+      errEl.textContent = '';
+      const result = await fetchAPI('/api/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (result?.two_factor_required) {
+        tempToken = result.temp_token;
+        document.getElementById('login-form-section').style.display = 'none';
+        document.getElementById('twofa-form-section').style.display = 'block';
+        return;
+      }
+      if (result?.user) { showAccountPage(result.user); return; }
+      errEl.textContent = result?.error || 'Login failed';
+    }
+    async function handleTwoFA() {
+      const code = document.getElementById('twofa-code').value;
+      const errEl = document.getElementById('twofa-error');
+      const result = await fetchAPI('/api/auth/2fa/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ temp_token: tempToken, code }),
+      });
+      if (result?.user) { showAccountPage(result.user); return; }
+      errEl.textContent = result?.error || '2FA failed';
+    }
+    async function handleLogout() {
+      await fetchAPI('/api/auth/logout', { method: 'POST' });
+      window.location.reload();
+    }
+    async function loadOrders() {
+      const orders = await fetchAPI('/api/orders');
+      const el = document.getElementById('orders-list');
+      if (!orders?.length) { el.innerHTML = '<p>No orders yet. <a href="/shop.html">Start shopping!</a></p>'; return; }
+      el.innerHTML = `<table class="data-table"><thead><tr><th>Order #</th><th>Date</th><th>Store</th><th>Items</th><th>Total</th><th>Status</th></tr></thead><tbody>${
+        orders.map(o => `<tr><td>#${o.id}</td><td>${new Date(o.created_at).toLocaleDateString()}</td><td>${o.store_name||'-'}</td><td>${(o.items||[]).filter(Boolean).length}</td><td>${formatPrice(o.total)}</td><td><span class="status-badge status-${o.status}">${o.status}</span></td></tr>`).join('')
+      }</tbody></table>`;
+    }
+  </script>
+</body>
+</html>

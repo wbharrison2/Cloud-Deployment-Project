@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shop — Artisan Gem Works</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="location-banner">
+    <div class="container">
+      <span>Location:</span>
+      <button class="loc-btn" id="loc-pdx" onclick="setLocation('pdx')">Portland</button>
+      <button class="loc-btn" id="loc-sea" onclick="setLocation('sea')">Seattle</button>
+      <span class="location-badge" id="header-location">Portland</span>
+    </div>
+  </div>
+  <header>
+    <div class="container">
+      <div class="logo"><a href="/">Artisan Gem Works</a></div>
+      <nav>
+        <a href="/shop.html" class="active">Shop</a>
+        <a href="/account.html">Account</a>
+        <a href="/cart.html" class="cart-link">Cart (<span id="cart-count">0</span>)</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="page-header">
+    <div class="container">
+      <h1>Shop</h1>
+      <p id="shop-location-desc">Showing all pieces available at your selected location.</p>
+    </div>
+  </div>
+
+  <div class="container shop-layout">
+    <aside class="shop-sidebar">
+      <h3>Category</h3>
+      <ul class="category-list" id="category-list"></ul>
+      <div class="cache-indicator" id="cache-indicator"></div>
+    </aside>
+    <main>
+      <div class="shop-controls">
+        <input type="search" id="search-input" placeholder="Search jewelry…" oninput="filterProducts()">
+        <select id="sort-select" onchange="filterProducts()">
+          <option value="created_at">Newest</option>
+          <option value="price_asc">Price: Low to High</option>
+          <option value="price_desc">Price: High to Low</option>
+          <option value="name_asc">Name A–Z</option>
+        </select>
+      </div>
+      <div class="product-grid" id="product-grid"><div class="loading">Loading products…</div></div>
+      <div class="pagination" id="pagination"></div>
+    </main>
+  </div>
+
+  <footer>
+    <div class="container">
+      <p>&copy; 2025 Artisan Gem Works</p>
+    </div>
+  </footer>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/shop.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      updateLocationUI();
+      initShop();
+    });
+  </script>
+</body>
+</html>

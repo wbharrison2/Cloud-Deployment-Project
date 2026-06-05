@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Product — Artisan Gem Works</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="location-banner">
+    <div class="container">
+      <span>Location:</span>
+      <button class="loc-btn" id="loc-pdx" onclick="setLocation('pdx')">Portland</button>
+      <button class="loc-btn" id="loc-sea" onclick="setLocation('sea')">Seattle</button>
+      <span class="location-badge" id="header-location">Portland</span>
+    </div>
+  </div>
+  <header>
+    <div class="container">
+      <div class="logo"><a href="/">Artisan Gem Works</a></div>
+      <nav>
+        <a href="/shop.html">Shop</a>
+        <a href="/account.html">Account</a>
+        <a href="/cart.html" class="cart-link">Cart (<span id="cart-count">0</span>)</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="container product-detail" id="product-detail">
+    <div class="loading">Loading product…</div>
+  </div>
+
+  <footer>
+    <div class="container"><p>&copy; 2025 Artisan Gem Works</p></div>
+  </footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      updateLocationUI();
+      const slug = new URLSearchParams(window.location.search).get('slug');
+      if (!slug) { window.location.href = '/shop.html'; return; }
+      const product = await fetchAPI(`/api/products/${slug}`);
+      const el = document.getElementById('product-detail');
+      if (!product) { el.innerHTML = '<p>Product not found. <a href="/shop.html">Back to shop</a></p>'; return; }
+      const badge = product.store_slug
+        ? `<span class="product-location-badge badge-${product.store_slug}">${product.store_slug.toUpperCase()} Exclusive</span>`
+        : '<span class="product-location-badge badge-shared">All Locations</span>';
+      el.innerHTML = `
+        <a href="/shop.html" class="back-link">← Back to shop</a>
+        <div class="product-detail-grid">
+          <div class="product-image-box">
+            <img src="${product.image_url || '/img/placeholder.jpg'}" alt="${product.name}" onerror="this.src='/img/placeholder.jpg'">
+            ${badge}
+          </div>
+          <div class="product-info">
+            <h1>${product.name}</h1>
+            <p class="product-price">${formatPrice(product.price)}</p>
+            <p class="product-description">${product.description || ''}</p>
+            <p class="stock-info">In stock: ${product.stock}</p>
+            <div class="qty-control">
+              <button onclick="adjustQty(-1)">-</button>
+              <input type="number" id="qty" value="1" min="1" max="${product.stock}">
+              <button onclick="adjustQty(1)">+</button>
+            </div>
+            <button class="btn btn-primary" onclick="handleAddToCart()" ${product.stock < 1 ? 'disabled' : ''}>
+              ${product.stock < 1 ? 'Out of Stock' : 'Add to Cart'}
+            </button>
+            <div id="add-feedback" class="feedback"></div>
+          </div>
+        </div>`;
+      window._product = product;
+    });
+    function adjustQty(d) {
+      const el = document.getElementById('qty');
+      el.value = Math.max(1, Math.min(parseInt(el.value) + d, window._product?.stock || 1));
+    }
+    function handleAddToCart() {
+      const qty = parseInt(document.getElementById('qty').value);
+      addToCart(window._product, qty);
+      document.getElementById('add-feedback').textContent = `Added ${qty} to cart!`;
+      setTimeout(() => document.getElementById('add-feedback').textContent = '', 2000);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cart — Artisan Gem Works</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="location-banner">
+    <div class="container">
+      <span>Location:</span>
+      <button class="loc-btn" id="loc-pdx" onclick="setLocation('pdx')">Portland</button>
+      <button class="loc-btn" id="loc-sea" onclick="setLocation('sea')">Seattle</button>
+      <span class="location-badge" id="header-location">Portland</span>
+    </div>
+  </div>
+  <header>
+    <div class="container">
+      <div class="logo"><a href="/">Artisan Gem Works</a></div>
+      <nav>
+        <a href="/shop.html">Shop</a>
+        <a href="/account.html">Account</a>
+        <a href="/cart.html" class="cart-link active">Cart (<span id="cart-count">0</span>)</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="page-header">
+    <div class="container"><h1>Your Cart</h1></div>
+  </div>
+
+  <div class="container cart-layout">
+    <main id="cart-items"><div class="loading">Loading cart…</div></main>
+    <aside class="order-summary">
+      <h3>Order Summary</h3>
+      <div id="location-note" class="location-note"></div>
+      <div class="summary-row"><span>Subtotal</span><span id="cart-subtotal">$0.00</span></div>
+      <div class="summary-row"><span>Shipping</span><span>Free</span></div>
+      <div class="summary-row total"><span>Total</span><span id="cart-total">$0.00</span></div>
+      <a href="/checkout.html" class="btn btn-primary btn-block" id="checkout-btn">Proceed to Checkout</a>
+    </aside>
+  </div>
+
+  <footer><div class="container"><p>&copy; 2025 Artisan Gem Works</p></div></footer>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/cart.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      updateLocationUI();
+      const loc = getLocation();
+      const note = document.getElementById('location-note');
+      if (note) note.textContent = `Fulfilling from: ${loc === 'sea' ? 'Seattle' : 'Portland'}`;
+      renderCartPage();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout — Artisan Gem Works</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+  <div class="location-banner">
+    <div class="container">
+      <span>Location:</span>
+      <button class="loc-btn" id="loc-pdx" onclick="setLocation('pdx')">Portland</button>
+      <button class="loc-btn" id="loc-sea" onclick="setLocation('sea')">Seattle</button>
+      <span class="location-badge" id="header-location">Portland</span>
+    </div>
+  </div>
+  <header>
+    <div class="container">
+      <div class="logo"><a href="/">Artisan Gem Works</a></div>
+      <nav>
+        <a href="/shop.html">Shop</a>
+        <a href="/account.html">Account</a>
+        <a href="/cart.html">Cart (<span id="cart-count">0</span>)</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="page-header"><div class="container"><h1>Checkout</h1></div></div>
+
+  <div class="container checkout-layout">
+    <main>
+      <section class="checkout-section">
+        <h2>Shipping Information</h2>
+        <form id="shipping-form">
+          <div class="form-row">
+            <div class="form-group"><label>First Name</label><input type="text" id="first-name" required></div>
+            <div class="form-group"><label>Last Name</label><input type="text" id="last-name" required></div>
+          </div>
+          <div class="form-group"><label>Address</label><input type="text" id="address" required></div>
+          <div class="form-row">
+            <div class="form-group"><label>City</label><input type="text" id="city" required></div>
+            <div class="form-group"><label>State</label><input type="text" id="state" required></div>
+            <div class="form-group"><label>ZIP</label><input type="text" id="zip" required></div>
+          </div>
+        </form>
+      </section>
+      <section class="checkout-section">
+        <h2>Payment</h2>
+        <div id="card-element" class="stripe-card-element"></div>
+        <div id="card-errors" class="card-errors"></div>
+      </section>
+      <button class="btn btn-primary btn-block" id="place-order-btn" onclick="placeOrder()">Place Order</button>
+      <div id="order-feedback" class="feedback"></div>
+    </main>
+    <aside class="order-summary">
+      <h3>Order Summary</h3>
+      <div id="checkout-items"></div>
+      <div class="summary-row total"><span>Total</span><span id="checkout-total">$0.00</span></div>
+    </aside>
+  </div>
+
+  <footer><div class="container"><p>&copy; 2025 Artisan Gem Works</p></div></footer>
+
+  <script src="/js/app.js"></script>
+  <script>
+    let stripe, cardElement;
+    document.addEventListener('DOMContentLoaded', async () => {
+      updateLocationUI();
+      const cart = getCart();
+      if (!cart.length) { window.location.href = '/cart.html'; return; }
+      const config = await fetchAPI('/api/config');
+      stripe = Stripe(config?.stripe_publishable_key || 'pk_test_placeholder');
+      const elements = stripe.elements();
+      cardElement = elements.create('card', { style: { base: { fontSize: '16px', color: '#2c1810' } } });
+      cardElement.mount('#card-element');
+      cardElement.on('change', e => { document.getElementById('card-errors').textContent = e.error?.message || ''; });
+      let total = 0;
+      const itemsEl = document.getElementById('checkout-items');
+      itemsEl.innerHTML = cart.map(i => {
+        total += i.price * i.quantity;
+        return `<div class="summary-row"><span>${i.name} x${i.quantity}</span><span>${formatPrice(i.price * i.quantity)}</span></div>`;
+      }).join('');
+      document.getElementById('checkout-total').textContent = formatPrice(total);
+    });
+    async function placeOrder() {
+      const btn = document.getElementById('place-order-btn');
+      const feedback = document.getElementById('order-feedback');
+      btn.disabled = true; btn.textContent = 'Processing…';
+      try {
+        const cart = getCart();
+        const result = await fetchAPI('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: cart.map(i => ({ product_id: i.id, quantity: i.quantity })),
+            location: getLocation(),
+            customer_name: `${document.getElementById('first-name').value} ${document.getElementById('last-name').value}`,
+            shipping_address: {
+              address: document.getElementById('address').value,
+              city: document.getElementById('city').value,
+              state: document.getElementById('state').value,
+              zip: document.getElementById('zip').value,
+            },
+          }),
+        });
+        if (result?.order_id) {
+          clearCart();
+          feedback.textContent = `Order #${result.order_id} placed! Total: ${formatPrice(result.total)}`;
+          feedback.className = 'feedback success';
+          setTimeout(() => window.location.href = '/account.html', 2000);
+        } else {
+          throw new Error(result?.error || 'Order failed');
+        }
+      } catch (err) {
+        feedback.textContent = err.message;
+        feedback.className = 'feedback error';
+        btn.disabled = false; btn.textContent = 'Place Order';
+      }
+    }
+  </script>
+</body>
+</html>
