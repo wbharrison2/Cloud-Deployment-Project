@@ -1,0 +1,60 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: agw
+      POSTGRES_USER: agw
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agw"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - '6379:6379'
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://agw:${DB_PASSWORD:-devpassword}@postgres:5432/agw
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      COOKIE_SECRET: ${COOKIE_SECRET:-dev-cookie-secret}
+      TOTP_ISSUER: ${TOTP_ISSUER:-Artisan Gem Works}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      STRIPE_PUBLIC_KEY: ${STRIPE_PUBLIC_KEY:-pk_test_placeholder}
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./app:/app
+      - /app/node_modules
+
+  nginx:
+    image: nginx:1.25-alpine
+    depends_on:
+      - app
+    ports:
+      - '80:80'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./public:/usr/share/nginx/html:ro
+
+volumes:
+  postgres_data:

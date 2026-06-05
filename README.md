@@ -1,144 +1,165 @@
-# Project 1 — Cloud Infrastructure & Development
-**Author:** Wilton B. Harrison  
-**Stack:** Terraform · AWS · Python · Boto3  
-**Tier:** Cloud Engineer Portfolio Project
+# Project 4 — Franchise High-Availability Platform
+## Artisan Gem Works | Multi-Location E-Commerce
+
+> **Scenario context:** After outgrowing the single-node Portland setup, Artisan Gem Works opened a Seattle location in September 2023. Black Friday 2023 brought a 14-hour outage and $28,400 in lost revenue. This project documents the migration to a high-availability, multi-location platform.
 
 ---
 
-## Overview
+## What's New vs. Project 3
 
-This project provisions a **production-grade, 3-tier AWS VPC** from scratch using Terraform Infrastructure-as-Code (IaC). It establishes the foundational cloud architecture that all other projects build upon — including compute, storage, networking, security groups, and IAM.
-
-A companion Python deployment script (`deploy.py`) automates packaging and pushing web application artifacts to EC2 via S3 + AWS SSM, requiring zero manual SSH access.
+| Area | Project 3 | Project 4 |
+|------|-----------|----------|
+| Database | SQLite (WAL) | PostgreSQL 15 (RDS Multi-AZ) |
+| Compute | 1 ECS task | 2 ECS tasks (desired_count=2) |
+| Cache | Redis sidecar | ElastiCache Redis (managed) |
+| Locations | Portland only | Portland + Seattle |
+| Session state | httpOnly cookie (stateless JWT) | Same — no sticky sessions needed |
+| Auth | Cookie + TOTP 2FA | Same + shared across both locations |
+| Deployment | Single-region | Multi-AZ within us-west-2 |
 
 ---
 
 ## Architecture
 
 ```
-Internet
-    │
-    ▼
-[Internet Gateway]
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│              VPC  10.0.0.0/16               │
-│                                             │
-│  ┌─────────────┐    ┌─────────────┐         │
-│  │ Public Sub  │    │ Public Sub  │  ◄── Tier 1: Web / ALB
-│  │ 10.0.1.0/24 │    │ 10.0.2.0/24 │         │
-│  └──────┬──────┘    └──────┬──────┘         │
-│         │ NAT GW           │                │
-│  ┌──────▼──────┐    ┌──────▼──────┐         │
-│  │ Private Sub │    │ Private Sub │  ◄── Tier 2: App Servers
-│  │ 10.0.10.0   │    │ 10.0.11.0   │         │
-│  └──────┬──────┘    └──────┬──────┘         │
-│         │                  │                │
-│  ┌──────▼──────┐    ┌──────▼──────┐         │
-│  │  Data Sub   │    │  Data Sub   │  ◄── Tier 3: DB / Data
-│  │ 10.0.20.0   │    │ 10.0.21.0   │         │
-│  └─────────────┘    └─────────────┘         │
-└─────────────────────────────────────────────┘
-          │
-          ▼
-    [S3 Artifact Bucket] ── versioned, encrypted, private
+Users
+  │
+  ▼
+CloudFront (WAF + CDN)
+  │
+  ▼
+ALB (multi-AZ, health checks)
+  ├─► ECS Task A  (us-west-2a)
+  └─► ECS Task B  (us-west-2b)
+         │
+         ├─► RDS PostgreSQL Primary  (us-west-2a) ─► Read Replica (us-west-2b)
+         └─► ElastiCache Redis       (multi-AZ cluster mode disabled)
 ```
 
 ---
 
-## Components
+## Store Locations
 
-| Resource | Description |
-|---|---|
-| `aws_vpc` | Primary VPC with DNS support enabled |
-| `aws_subnet` (x6) | 3-tier subnets across 2 AZs (public/private/data) |
-| `aws_internet_gateway` | Public egress for Tier 1 |
-| `aws_nat_gateway` | Private egress for Tier 2 (no direct internet exposure) |
-| `aws_route_table` (x2) | Separate routing for public/private tiers |
-| `aws_security_group` (x3) | Tiered SGs: web → app → data (least-privilege) |
-| `aws_instance` | EC2 t3.micro web server (Amazon Linux 2, encrypted EBS) |
-| `aws_iam_role` | EC2 IAM role with SSM managed policy (no SSH keys needed) |
-| `aws_s3_bucket` | Encrypted, versioned, fully private artifact bucket |
+### Portland (Flagship)
+- **Address:** 2847 NW Thurman St, Portland, OR 97210
+- **Phone:** (503) 555-0142
+- **Hours:** Tue–Sat 10am–7pm | Sun 11am–5pm | Mon Closed
+- **Manager:** Mira Chen
 
----
-
-## Security Controls Applied
-
-- **Encryption at rest:** EBS volumes (AES-256), S3 (SSE-AES256)
-- **Public access blocked:** S3 bucket fully private
-- **Least-privilege SGs:** Each tier only allows traffic from the tier above
-- **No SSH ingress:** EC2 access via AWS SSM Session Manager only
-- **IAM role scoped:** EC2 role limited to SSM + S3 bucket access
-- **S3 versioning:** Full artifact history for rollback capability
+### Seattle
+- **Address:** 4521 Ballard Ave NW, Seattle, WA 98107
+- **Phone:** (206) 555-0178
+- **Hours:** Mon–Sat 10am–8pm | Sun 12pm–6pm
+- **Manager:** Priya Okafor
 
 ---
 
-## Prerequisites
+## Product Catalog
 
-| Tool | Version | Source |
-|---|---|---|
-| Terraform | >= 1.6 | https://developer.hashicorp.com/terraform/install |
-| AWS CLI | >= 2.x | https://aws.amazon.com/cli/ |
-| Python | >= 3.9 | https://python.org |
-| boto3 | latest | `pip install boto3 click` |
+### Shared (both locations — 10 items)
+| Name | Price |
+|------|-------|
+| Cascade Falls Ring | $145 |
+| Forest Mist Pendant | $98 |
+| Obsidian Coast Cuff | $175 |
+| Pacific Tide Earrings | $65 |
+| Evergreen Lariat | $130 |
+| Basalt Column Brooch | $88 |
+| River Stone Bracelet | $75 |
+| Alpine Meadow Ring | $120 |
+| Coastal Fog Pendant | $110 |
+| Northwest Moss Ring | $85 |
+
+### Portland Exclusive (pdx- prefix)
+| Name | Price |
+|------|-------|
+| Columbia Gorge Cuff | $165 |
+| Mt. Hood Crystal Set | $220 |
+| Willamette Valley Vine | $95 |
+
+### Seattle Exclusive (sea- prefix)
+| Name | Price |
+|------|-------|
+| Puget Sound Wave Ring | $155 |
+| Rainier Summit Pendant | $195 |
+| Pike Market Mosaic | $115 |
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Clone / navigate to project directory
-cd project1-cloud-infra
+cp .env.example .env
+# Fill in DB_PASSWORD, JWT_SECRET, COOKIE_SECRET, TOTP_ISSUER
+docker compose up --build
+# Visit http://localhost
+# Admin: http://localhost/admin.html
+```
 
-# 2. Configure AWS credentials
-aws configure
-
-# 3. Initialize Terraform
-terraform init
-
-# 4. Preview infrastructure changes
-terraform plan -out=tfplan
-
-# 5. Apply infrastructure
-terraform apply tfplan
-
-# 6. Deploy web app (after infrastructure is up)
-python deploy.py \
-  --bucket <output: s3_bucket_name> \
-  --instance-id <output: web_instance_id> \
-  --app-dir ./app
-
-# 7. Verify
-curl http://<output: web_instance_ip>
+**First-time DB seed:**
+```bash
+docker compose exec app node db/seed.js
 ```
 
 ---
 
-## Teardown
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/locations | List all store locations |
+| GET | /api/products | Products (optional ?location=pdx\|sea) |
+| GET | /api/products/:slug | Single product |
+| GET | /api/products/categories | All categories |
+| POST | /api/auth/login | Login (returns cookie + 2FA flag) |
+| POST | /api/auth/2fa/verify | Verify TOTP code |
+| POST | /api/auth/logout | Revoke JWT (Redis blocklist) |
+| GET | /api/auth/me | Current user |
+| POST | /api/orders | Place order (requires location) |
+| GET | /api/orders/mine | Customer order history |
+| GET | /api/admin/orders | All orders (admin) |
+| PATCH | /api/admin/orders/:id | Update order status |
+| POST/PUT/DELETE | /api/admin/products | Product CRUD |
+| GET | /api/admin/audit-log | Paginated audit events |
+| POST | /api/admin/cache/clear | Flush Redis + CloudFront |
+
+---
+
+## Security Controls (inherited from P3 + additions)
+
+| Control | Implementation |
+|---------|---------------|
+| JWT auth | httpOnly `__Host-agw_token` cookie |
+| 2FA | TOTP via speakeasy (RFC 6238) |
+| Session revocation | Redis blocklist with TTL |
+| Audit log | PostgreSQL audit_log table |
+| Rate limiting | Nginx: 5r/m auth, 5r/m admin |
+| HSTS | max-age=63072000; includeSubDomains |
+| CSP | Strict policy, no inline scripts |
+| WAF | AWS WAFv2 managed rules + rate limit |
+| TLS | ACM cert, TLSv1.2_2021 minimum |
+| DB encryption | RDS storage encryption (AES-256) |
+
+---
+
+## Environment Variables
+
+See `.env.example` for full list. Critical vars:
+
+```
+DATABASE_URL   postgresql://agw:PASSWORD@host:5432/agw
+JWT_SECRET     64-char random hex
+COOKIE_SECRET  32-char random hex
+REDIS_URL      redis://elasticache-endpoint:6379
+STRIPE_SECRET_KEY  sk_test_...
+```
+
+---
+
+## Deployment
 
 ```bash
-terraform destroy
+export ECR_REPO=123456789.dkr.ecr.us-west-2.amazonaws.com/agw-p4
+export CLOUDFRONT_DISTRIBUTION_ID=EXXXXXXXXX
+bash deploy.sh
 ```
-
-> ⚠️ This destroys ALL resources including the S3 bucket. Ensure artifacts are backed up first.
-
----
-
-## Key Learning Outcomes
-
-- Terraform state management with remote S3 backend + DynamoDB locking
-- 3-tier VPC network segmentation (defense in depth)
-- Security group chaining to enforce least-privilege data flows
-- IAM instance profiles and SSM-based access (replacing SSH)
-- S3 encryption, versioning, and public access controls
-- Automated CI/CD artifact pipeline with Python + Boto3
-
----
-
-## Open-Source References
-
-- [Terraform AWS Provider Docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [AWS VPC User Guide](https://docs.aws.amazon.com/vpc/latest/userguide/)
-- [Boto3 Documentation](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html)
-- [AWS SSM Run Command](https://docs.aws.amazon.com/systems-manager/latest/userguide/execute-remote-commands.html)

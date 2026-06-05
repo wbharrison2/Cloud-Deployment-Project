@@ -1,55 +1,41 @@
-# SUMMARY — Project 1: Cloud Infrastructure & Development
+# Summary — Project 4: Franchise High-Availability Platform
 
-**Author:** Wilton B. Harrison  
-**Date:** 2026  
-**Classification:** Portfolio / Professional Development
+## One-Line Summary
 
----
+Migrated from a single-node SQLite stack to a PostgreSQL-backed, multi-AZ ECS platform capable of serving two franchise locations simultaneously without downtime.
 
-## What This Project Does
+## Before vs. After
 
-Project 1 builds the **complete cloud foundation** — a hardened, 3-tier AWS VPC provisioned entirely through Terraform IaC. It mirrors real enterprise architecture used by companies like Boeing, Amazon, and DoD cloud environments. The infrastructure separates web, application, and data tiers into isolated subnet layers, each with its own security group chain enforcing least-privilege traffic flow.
+| Dimension | Before (P3) | After (P4) |
+|-----------|-------------|------------|
+| Database | SQLite 3 (WAL) on EFS | PostgreSQL 15 (RDS Multi-AZ) |
+| DB writes | Single-process only | Concurrent writes from any task |
+| DB failover | Manual EFS restore | Automatic (< 60s) |
+| Compute | 1 ECS task | 2 ECS tasks (one per AZ) |
+| Cache | Redis sidecar (ephemeral) | ElastiCache (persistent, multi-AZ) |
+| Locations | Portland only | Portland + Seattle |
+| Connection pooling | None (SQLite) | pg.Pool max=10/task |
+| Load test (500 VU) | Crash at ~300 VU | Zero errors |
+| Christmas 2024 orders | N/A | 980 processed |
+| RTO (DB failure) | Hours (manual) | < 60 seconds (automatic) |
 
-A Python automation script (`deploy.py`) eliminates manual deployments by packaging application code, uploading it to an encrypted S3 bucket, and triggering deployment to EC2 via AWS SSM — producing a full audit trail with zero SSH access.
+## Key Decisions
 
----
+### PostgreSQL over MySQL
+PostgreSQL's `LISTEN/NOTIFY`, JSONB column support, and superior concurrency control made it the clear choice. AWS RDS PostgreSQL 15 also supports logical replication for future read-scaling if needed.
 
-## Why It Matters for Cloud Engineering Roles
+### ECS Fargate over EC2
+Fargate eliminates instance management. Two Fargate tasks across two AZs provide HA without the overhead of managing an ASG. Fargate Spot on the secondary task reduces cost ~70%.
 
-This project directly maps to the **#1 requirement** seen in top cloud engineering and AWS job postings: the ability to design and provision multi-tier, secure cloud infrastructure from scratch using IaC. It demonstrates:
+### ElastiCache over Self-Managed Redis
+ElastiCache provides automatic Multi-AZ failover (< 30s), CloudWatch metrics out of the box, and no Redis version management. The cost delta (~$45/mo) is trivial against the Black Friday loss.
 
-- **Terraform proficiency** — providers, backends, modules, state management
-- **AWS networking depth** — VPCs, subnets, IGW, NAT, route tables, SGs
-- **Security-first design** — encryption at rest, no public S3, no SSH, IAM least-privilege
-- **Automation mindset** — zero-touch deployments via Python + Boto3 + SSM
+### Stateless JWT (no sticky sessions)
+Because auth state lives in the signed cookie (validated against Redis blocklist), any ECS task can serve any request. This enables zero-configuration load balancing and smooth rolling deploys.
 
----
+## Lessons Learned
 
-## Architecture Decision Highlights
-
-| Decision | Rationale |
-|---|---|
-| 3-tier subnet separation | Defense in depth — breach in web tier cannot reach data tier |
-| NAT Gateway (not IGW) for private tier | Private instances have outbound internet but are never directly reachable |
-| SSM over SSH | Eliminates key management risk, full session logging, DoD-aligned |
-| S3 remote Terraform state | Enables team collaboration, prevents state conflicts (DynamoDB lock) |
-| Encrypted EBS + S3 | Meets NIST 800-53 SC-28 (protection of information at rest) |
-
----
-
-## Tools & Open-Source Stack
-
-| Tool | Role | License |
-|---|---|---|
-| Terraform (HashiCorp) | Infrastructure provisioning | MPL 2.0 |
-| AWS Provider (HashiCorp) | AWS API abstraction | MPL 2.0 |
-| Python 3 | Deployment automation | PSF |
-| Boto3 (AWS SDK) | AWS API calls from Python | Apache 2.0 |
-| Click | CLI framework for deploy script | BSD |
-| Apache HTTP Server | Web server on EC2 | Apache 2.0 |
-
----
-
-## Skills Demonstrated
-
-`Terraform IaC` · `AWS VPC Design` · `Subnet Segmentation` · `Security Groups` · `IAM Roles` · `S3 Encryption` · `NAT Gateway` · `Python Automation` · `Boto3` · `AWS SSM` · `CI/CD Artifact Pipeline` · `NIST 800-53 Controls` · `Infrastructure Documentation`
+1. **Validate your database architecture before scaling compute.** Auto-scaling SQLite is worse than not auto-scaling.
+2. **Readiness probes are mandatory.** Traffic to a starting container causes cascading errors.
+3. **Managed services pay for themselves quickly.** ElastiCache + RDS Multi-AZ cost ~$180/mo combined. The Black Friday outage cost $28,400 in a single night.
+4. **Load test before peak season.** A 30-minute k6 test would have caught the SQLite concurrency issue.
